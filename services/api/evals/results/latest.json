@@ -1,0 +1,117 @@
+{
+  "provider": "local",
+  "threshold": 0.9,
+  "passed": 12,
+  "total": 12,
+  "pass_rate": 1.0,
+  "results": [
+    {
+      "id": "happy_path",
+      "passed": true,
+      "actual_status": "recommended",
+      "actual_supplier": "northstar",
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "deadline_miss_visible",
+      "passed": true,
+      "actual_status": "recommended",
+      "actual_supplier": "northstar",
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "missing_authorization",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "expired_authorization",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "dosage_ambiguity",
+      "passed": true,
+      "actual_status": "clarification",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "pack_mismatch",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "unsupported_destination",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "cold_chain",
+      "passed": true,
+      "actual_status": "recommended",
+      "actual_supplier": "northstar",
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "currency_mismatch",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "price_outlier",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "no_supplier",
+      "passed": true,
+      "actual_status": "review_required",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "provider_failure",
+      "passed": true,
+      "actual_status": "failed_safe",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "unsupported_claims": 0
+    }
+  ]
+}

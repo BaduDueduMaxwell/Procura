@@ -1,0 +1,14 @@
+[
+  {"id":"happy_path","input":"5,000 packs of paracetamol 500 mg tablets, pack size 100, to Accra within 18 days in USD","expected_status":"recommended","expected_supplier":"northstar"},
+  {"id":"deadline_miss_visible","input":"2,000 packs of amoxicillin 500 mg capsules, pack size 100, to Ghana within 21 days in USD","expected_status":"recommended","expected_supplier":"northstar"},
+  {"id":"missing_authorization","input":"2,000 packs of amoxicillin 500 mg tablets, pack size 100, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
+  {"id":"expired_authorization","input":"2,000 packs of amoxicillin 500 mg tablets, pack size 50, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
+  {"id":"dosage_ambiguity","input":"2,000 packs of amoxicillin 500 mg, pack size 100, to Ghana within 21 days in USD","expected_status":"clarification","expected_supplier":null},
+  {"id":"pack_mismatch","input":"2,000 packs of amoxicillin 500 mg capsules, pack size 50, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
+  {"id":"unsupported_destination","input":"2,000 packs of amoxicillin 500 mg capsules, pack size 100, to Nigeria within 21 days in USD","expected_status":"review_required","expected_supplier":null},
+  {"id":"cold_chain","input":"300 packs of insulin 100 units/ml vials, pack size 10, cold chain to Ghana within 21 days in USD","expected_status":"recommended","expected_supplier":"northstar"},
+  {"id":"currency_mismatch","input":"2,000 packs of amoxicillin 500 mg capsules, pack size 100, to Ghana within 21 days in EUR","expected_status":"review_required","expected_supplier":null},
+  {"id":"price_outlier","input":"2,000 packs of amoxicillin 500 mg tablets, pack size 50, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
+  {"id":"no_supplier","input":"2,000 packs of ceftriaxone 500 mg vials, pack size 10, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
+  {"id":"provider_failure","input":"provider failure","expected_status":"failed_safe","expected_supplier":null}
+]
