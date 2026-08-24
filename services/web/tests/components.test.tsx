@@ -5,7 +5,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { DecisionCards } from "@/components/DecisionCards";
 import type { AgentResponse } from "@/lib/types";
 import Home from "@/app/page";
-import { api } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
 
 const stored = new Map<string, string>();
 Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), removeItem: (key: string) => stored.delete(key), clear: () => stored.clear() } });
@@ -30,6 +30,19 @@ describe("public SaaS entry", () => {
     screen.getAllByRole("button", { name: "Sign in" })[0].click();
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeVisible();
     expect(screen.queryByText(/reviewer@procura.example/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("API validation messages", () => {
+  it("turns structured password validation into readable guidance", () => {
+    expect(formatApiError({ detail: [{ loc: ["body", "password"], msg: "String should have at least 12 characters" }] })).toBe("Password must be at least 12 characters.");
+    expect(formatApiError({ detail: [{ loc: ["body", "password"], msg: "Value error, password must include upper, lower, number, and symbol" }] })).toBe("Password must include uppercase and lowercase letters, a number, and a symbol.");
+  });
+
+  it("never renders validation objects as object strings", () => {
+    const message = formatApiError({ detail: [{ loc: ["body", "organization"], msg: "String should have at least 2 characters" }] });
+    expect(message).toContain("Organization");
+    expect(message).not.toContain("[object Object]");
   });
 });
 
