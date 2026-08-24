@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-quality:
+    name: Backend · lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r services/api/requirements.txt
+      - run: ruff check services/api/app services/api/tests services/api/evals
+
+  backend-tests:
+    name: Backend · gate tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r services/api/requirements.txt
+      - run: PYTHONPATH=services/api pytest services/api/tests -q
+
+  frontend-quality:
+    name: Frontend · lint and types
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  frontend-tests:
+    name: Frontend · component tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/web/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  deterministic-evals:
+    name: AI · deterministic evaluations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r services/api/requirements.txt
+      - run: PYTHONPATH=services/api python services/api/evals/run.py
+
+  production-builds:
+    name: Build · applications and containers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/web/package-lock.json
+      - run: npm ci
+        working-directory: services/web
+      - run: npm run build
+        working-directory: services/web
+        env:
+          API_ORIGIN: https://api.example.invalid
+      - run: docker compose config --quiet
+      - run: docker build -f services/api/Dockerfile -t procura-api:ci .
+      - run: docker build -f services/web/Dockerfile -t procura-web:ci .
+
+  ci-passed:
+    name: CI · all required checks passed
+    if: always()
+    needs:
+      - backend-quality
+      - backend-tests
+      - frontend-quality
+      - frontend-tests
+      - deterministic-evals
+      - production-builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          IFS=',' read -ra results <<< "$RESULTS"
+          test "${#results[@]}" -eq 6
+          for result in "${results[@]}"; do test "$result" = "success"; done
