@@ -285,8 +285,8 @@ function SupplierDashboard() {
     finally { setSaving(false); }
   }
   async function submitQuote(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSaving(true); setFeedback(""); const form = new FormData(event.currentTarget);
-    try { await api.submitSupplierQuote({ medicine_name:String(form.get("medicine_name") || ""), strength:String(form.get("strength") || ""), dosage_form:String(form.get("dosage_form") || ""), pack_size:Number(form.get("pack_size")), available_quantity_packs:Number(form.get("available_quantity_packs")), unit_price:Number(form.get("unit_price")), currency:String(form.get("currency") || ""), lead_time_days:Number(form.get("lead_time_days")) }); event.currentTarget.reset(); setFeedback("Quotation submitted for staff verification."); await load(); }
+    event.preventDefault(); setSaving(true); setFeedback(""); const formElement = event.currentTarget; const form = new FormData(formElement);
+    try { await api.submitSupplierQuote({ medicine_name:String(form.get("medicine_name") || ""), strength:String(form.get("strength") || ""), dosage_form:String(form.get("dosage_form") || ""), pack_size:Number(form.get("pack_size")), available_quantity_packs:Number(form.get("available_quantity_packs")), unit_price:Number(form.get("unit_price")), currency:String(form.get("currency") || ""), lead_time_days:Number(form.get("lead_time_days")) }); formElement.reset(); setFeedback("Quotation submitted for staff verification."); await load(); }
     catch (error) { setFeedback(error instanceof Error ? error.message : "Quotation could not be submitted."); }
     finally { setSaving(false); }
   }

@@ -93,4 +93,22 @@ describe("guided product journey", () => {
     expect(window.location.pathname).toBe("/dashboard");
     expect(await screen.findByRole("heading", { name: "Procurement dashboard" })).toBeVisible();
   });
+
+  it("confirms a supplier quotation submission after the async request", async () => {
+    window.localStorage.setItem("procura-guide:supplier-route", "seen");
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id: "supplier-route", email: "supplier-route@procura.example", display_name: "Supplier", organization: "Aster", role: "supplier", created_at: new Date().toISOString() });
+    vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"aster",display_name:"Aster",authorization:{status:"missing"},capability:{destinations:[],cold_chain:false},reliability_score:0,quotes:[]}, quote_count:0,eligible_destination_count:0,compliance_state:"missing",submissions:[] });
+    vi.spyOn(api, "submitSupplierQuote").mockResolvedValue({ id:"submission-1",supplier_id:"aster",kind:"quote",payload:{},status:"pending",created_at:new Date().toISOString() });
+    render(<Home />);
+    await screen.findByRole("heading", { name: "Submit a quotation" });
+    fireEvent.change(screen.getByLabelText("Medicine"), { target:{value:"paracetamol"} });
+    fireEvent.change(screen.getByLabelText("Strength"), { target:{value:"500 mg"} });
+    fireEvent.change(screen.getByLabelText("Dosage form"), { target:{value:"tablet"} });
+    fireEvent.change(screen.getByLabelText("Pack size"), { target:{value:"20"} });
+    fireEvent.change(screen.getByLabelText("Available packs"), { target:{value:"4000"} });
+    fireEvent.change(screen.getByLabelText("Price per pack"), { target:{value:"0.44"} });
+    fireEvent.change(screen.getByLabelText("Lead time (days)"), { target:{value:"13"} });
+    fireEvent.click(screen.getByRole("button", { name:"Submit quotation for verification" }));
+    expect(await screen.findByText("Quotation submitted for staff verification.")).toBeVisible();
+  });
 });
