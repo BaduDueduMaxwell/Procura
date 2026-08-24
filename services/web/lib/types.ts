@@ -1,6 +1,6 @@
 export type Medicine = { medicine_name?: string; strength?: string; dosage_form?: string; quantity?: number; pack_size?: number; unit: string; cold_chain_required: boolean };
 export type RequestDraft = { id: string; medicine: Medicine; destination?: string; max_lead_time_days?: number; currency?: string; buyer_notes?: string; synthetic: true };
-export type Quote = { supplier_id: string; quote_id: string; total_price: number; currency: string; lead_time_days: number; reliability: number; score?: number; eligible: boolean; reasons: string[] };
+export type Quote = { supplier_id: string; quote_id: string; total_price: number; unit_price: number; currency: string; requested_quantity_packs: number; available_quantity_packs: number; offered_pack_size: number; lead_time_days: number; reliability: number; score?: number; eligible: boolean; reasons: string[] };
 export type Decision = { status: "clarification" | "recommended" | "review_required" | "failed_safe"; recommendation_supplier_id?: string; summary: string; human_review_required: boolean; escalation_reasons: string[]; policy_version: string; trace_id: string; no_transaction_completed: true };
 export type AgentResponse = { conversation_id: string; message: Message; request: RequestDraft; quotes: Quote[]; decision: Decision; progress_events: string[] };
 export type Message = { id: string; role: "user" | "assistant"; content: string; created_at: string };
@@ -11,4 +11,5 @@ export type Operations = { request_count: number; autonomous_recommendation_coun
 export type AuthUser = { id: string; email: string; display_name: string; organization: string; role: "buyer" | "supplier" | "reviewer" | "admin"; created_at: string };
 export type CustomerDashboard = { conversation_count: number; execution_count: number; recommendation_count: number; review_count: number; recent_decisions: Trace[] };
 export type SupplierProfile = { id: string; display_name: string; authorization: { status: string; expiry_date?: string }; capability: { destinations: string[]; cold_chain: boolean }; reliability_score: number; quotes: { id: string; currency: string; lead_time_days: number; line: { medicine_name: string; strength: string; dosage_form: string; pack_size: number; quantity_packs: number; unit_price: number } }[] };
-export type SupplierDashboard = { supplier: SupplierProfile; quote_count: number; eligible_destination_count: number; compliance_state: string };
+export type SupplierSubmission = { id: string; supplier_id: string; kind: "profile" | "quote"; payload: Record<string, unknown>; status: "pending" | "approved" | "rejected"; reviewer_note?: string; reviewed_at?: string; created_at: string };
+export type SupplierDashboard = { supplier: SupplierProfile; quote_count: number; eligible_destination_count: number; compliance_state: string; submissions: SupplierSubmission[] };

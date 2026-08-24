@@ -1,4 +1,4 @@
-import type { AgentResponse, AuthUser, Conversation, CustomerDashboard, Operations, ReviewCase, SupplierDashboard, Trace } from "./types";
+import type { AgentResponse, AuthUser, Conversation, CustomerDashboard, Operations, ReviewCase, SupplierDashboard, SupplierSubmission, Trace } from "./types";
 import * as Sentry from "@sentry/nextjs";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
@@ -42,11 +42,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 export const api = {
   me: () => request<AuthUser>("/api/auth/me"),
-  signup: (body: { email: string; display_name: string; organization: string; password: string }) => request<AuthUser>("/api/auth/signup", { method: "POST", body: JSON.stringify(body) }),
+  signup: (body: { email: string; display_name: string; organization: string; password: string; account_type?: "buyer" | "supplier" }) => request<AuthUser>("/api/auth/signup", { method: "POST", body: JSON.stringify(body) }),
   login: (email: string, password: string) => request<AuthUser>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   customerDashboard: () => request<CustomerDashboard>("/api/dashboard/summary"),
   supplierDashboard: () => request<SupplierDashboard>("/api/supplier/dashboard"),
+  submitSupplierProfile: (body: { display_name: string; destinations: string[]; cold_chain: boolean; authorization_expiry: string }) => request<SupplierSubmission>("/api/supplier/submissions/profile", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) }),
+  submitSupplierQuote: (body: { quote_id?: string; action?: "upsert" | "withdraw"; medicine_name: string; strength: string; dosage_form: string; pack_size: number; available_quantity_packs: number; unit_price: number; currency: string; lead_time_days: number }) => request<SupplierSubmission>("/api/supplier/submissions/quotes", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) }),
+  supplierSubmissions: () => request<SupplierSubmission[]>("/api/supplier-submissions"),
+  decideSupplierSubmission: (id: string, action: "approve" | "reject", note: string) => request<SupplierSubmission>(`/api/supplier-submissions/${id}/decision`, { method: "POST", body: JSON.stringify({ action, note, idempotency_key: crypto.randomUUID() }) }),
   createConversation: () => request<Conversation>("/api/conversations", { method: "POST" }),
   sendMessage: (id: string, content: string, simulate = false) => request<AgentResponse>(`/api/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content, idempotency_key: crypto.randomUUID(), simulate_tool_timeout: simulate }) }),
   reviews: () => request<ReviewCase[]>("/api/reviews"),

@@ -14,13 +14,15 @@ export function DecisionCards({ result }: { result: AgentResponse }) {
         <div><dt>Delivery</dt><dd>{request.max_lead_time_days ? `Within ${request.max_lead_time_days} days` : "Pending"}</dd></div><div><dt>Currency</dt><dd>{request.currency || "Pending"}</dd></div>
       </dl>
     </section>
-    {decision.human_review_required && <div className="review-banner" role="status"><CircleAlert size={20} /><div><strong>Human review required</strong><p>{decision.escalation_reasons[0] || "An unsafe condition requires staff review."}</p></div></div>}
+    {decision.human_review_required && <div className="review-banner" role="status"><CircleAlert size={20} /><div><strong>Human review required</strong>{decision.escalation_reasons.length ? <ul>{decision.escalation_reasons.map(reason => <li key={reason}>{reason}</li>)}</ul> : <p>An unsafe condition requires staff review.</p>}</div></div>}
     {quotes.length > 0 && <section className="data-card quote-card"><div className="card-title"><h3>Quotation comparison</h3><span>{quotes.length} reviewed</span></div>
       <div className="quote-table" role="table" aria-label="Supplier quotation comparison">
         {quotes.map((quote, index) => <div className="quote-row" role="row" key={quote.quote_id}>
           <div className="supplier-cell"><span className="rank">{String(index + 1).padStart(2, "0")}</span><div><strong>{names[quote.supplier_id] || quote.supplier_id}</strong><small>{quote.reliability * 100}% reliability · {quote.lead_time_days} days</small></div></div>
-          <div className="price"><strong>{quote.currency} {quote.total_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><small>{quote.score ? `Score ${quote.score}` : quote.reasons[0]}</small></div>
+          <div className="price"><strong>{quote.currency} {quote.total_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><small>Total for {quote.requested_quantity_packs.toLocaleString()} requested packs</small></div>
           <StatusBadge status={quote.eligible ? "eligible" : "ineligible"} />
+          <div className="quote-basis">{quote.available_quantity_packs.toLocaleString()} available · pack {quote.offered_pack_size} · {quote.currency} {quote.unit_price.toFixed(2)} per pack</div>
+          <ul className={`quote-reasons ${quote.eligible ? "quote-passed" : ""}`}>{quote.eligible ? <li>All eligibility checks passed</li> : quote.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
         </div>)}
       </div>
     </section>}
