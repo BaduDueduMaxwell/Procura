@@ -1,0 +1,17 @@
+.env
+CLAUDE.md
+AGENTS.md
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+*.pyc
+*.db
+node_modules/
+.next/
+coverage/
+outputs/
+work/
+*.tsbuildinfo
+.ruff_cache/
+services/api/evals/results/latest-runtime.json
