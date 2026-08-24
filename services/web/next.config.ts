@@ -6,5 +6,5 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
 const apiOrigin = process.env.API_ORIGIN?.replace(/\/$/, "");
-const nextConfig: NextConfig = { output: "standalone", reactStrictMode: true, poweredByHeader: false, turbopack: { root: process.cwd() }, agentRules: false, async headers() { return [{ source: "/:path*", headers: securityHeaders }]; }, async rewrites() { return apiOrigin ? [{ source: "/api/:path*", destination: `${apiOrigin}/api/:path*` }] : []; } };
+const nextConfig: NextConfig = { ...(process.env.VERCEL ? {} : { output: "standalone" as const }), reactStrictMode: true, poweredByHeader: false, turbopack: { root: process.cwd() }, agentRules: false, async headers() { return [{ source: "/:path*", headers: securityHeaders }]; }, async rewrites() { return apiOrigin ? [{ source: "/api/:path*", destination: `${apiOrigin}/api/:path*` }] : []; } };
 export default nextConfig;
