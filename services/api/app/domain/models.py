@@ -114,6 +114,7 @@ class EligibilityResult(BaseModel):
 
 class QuoteScore(BaseModel):
     supplier_id: str
+    supplier_display_name: str | None = None
     quote_id: str
     total_price: float
     unit_price: float = 0

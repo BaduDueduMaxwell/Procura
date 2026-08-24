@@ -33,6 +33,7 @@ def test_custom_quantity_uses_availability_and_requested_total(client):
     assert body["decision"]["recommendation_supplier_id"] == "northstar"
     northstar = next(quote for quote in body["quotes"] if quote["supplier_id"] == "northstar")
     assert northstar["total_price"] == 690.0
+    assert northstar["supplier_display_name"] == "Northstar Health Supply"
     assert northstar["requested_quantity_packs"] == 1500
     assert northstar["available_quantity_packs"] == 5000
 

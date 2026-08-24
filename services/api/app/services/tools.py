@@ -96,7 +96,7 @@ def rank_eligible_quotes(request: ProcurementRequest, items: list[tuple[Supplier
     for s, q, e in items:
         requested_total = round(q.line.unit_price * requested_quantity, 2)
         score = None if not e.eligible else round(.5 * min_price / requested_total + .25 * min_delivery / q.lead_time_days + .25 * s.reliability_score, 4)
-        scores.append(QuoteScore(supplier_id=s.id, quote_id=q.id, total_price=requested_total, unit_price=q.line.unit_price, currency=q.currency, requested_quantity_packs=requested_quantity, available_quantity_packs=q.line.quantity_packs, offered_pack_size=q.line.pack_size, lead_time_days=q.lead_time_days, reliability=s.reliability_score, score=score, eligible=e.eligible, reasons=e.reasons))
+        scores.append(QuoteScore(supplier_id=s.id, supplier_display_name=s.display_name, quote_id=q.id, total_price=requested_total, unit_price=q.line.unit_price, currency=q.currency, requested_quantity_packs=requested_quantity, available_quantity_packs=q.line.quantity_packs, offered_pack_size=q.line.pack_size, lead_time_days=q.lead_time_days, reliability=s.reliability_score, score=score, eligible=e.eligible, reasons=e.reasons))
     return sorted(scores, key=lambda x: (not x.eligible, -(x.score or 0)))
 
 
