@@ -45,8 +45,13 @@ def validate_cold_chain_capability(request: ProcurementRequest, supplier: Suppli
 
 
 def validate_quote_units(request: ProcurementRequest, quote: SupplierQuote) -> ToolResult:
-    passed = request.medicine.pack_size == quote.line.pack_size and request.medicine.quantity == quote.line.quantity_packs and request.medicine.unit == "packs"
-    return ToolResult(tool="validate_quote_units", passed=passed, detail="Pack size and units match" if passed else f"Requested {request.medicine.quantity} packs × {request.medicine.pack_size}; quote is {quote.line.quantity_packs} packs × {quote.line.pack_size}")
+    if request.medicine.unit != "packs":
+        return ToolResult(tool="validate_quote_units", passed=False, detail=f"Unsupported requested unit: {request.medicine.unit}")
+    if request.medicine.pack_size != quote.line.pack_size:
+        return ToolResult(tool="validate_quote_units", passed=False, detail=f"Pack size mismatch: requested {request.medicine.pack_size}, offered {quote.line.pack_size}")
+    if request.medicine.quantity is None or request.medicine.quantity > quote.line.quantity_packs:
+        return ToolResult(tool="validate_quote_units", passed=False, detail=f"Availability shortfall: requested {request.medicine.quantity} packs, {quote.line.quantity_packs} available")
+    return ToolResult(tool="validate_quote_units", passed=True, detail=f"Pack size matches; {quote.line.quantity_packs} packs available for {request.medicine.quantity} requested")
 
 
 def validate_delivery_deadline(request: ProcurementRequest, quote: SupplierQuote) -> ToolResult:
@@ -55,13 +60,22 @@ def validate_delivery_deadline(request: ProcurementRequest, quote: SupplierQuote
 
 
 def compare_quote_prices(request: ProcurementRequest, matches: list[tuple[Supplier, SupplierQuote]]) -> dict[str, ToolResult]:
-    same_currency = [q.total_price for _, q in matches if q.currency == request.currency]
-    med = median(same_currency) if same_currency else None
+    requested_quantity = request.medicine.quantity or 0
+    comparable = [
+        q.line.unit_price * requested_quantity
+        for _, q in matches
+        if q.currency == request.currency
+        and q.line.pack_size == request.medicine.pack_size
+        and q.line.quantity_packs >= requested_quantity
+    ]
+    med = median(comparable) if comparable else None
     results = {}
     for _, q in matches:
         if q.currency != request.currency:
             results[q.id] = ToolResult(tool="compare_quote_prices", passed=False, detail=f"Currency {q.currency} cannot be compared with {request.currency} without a verified rate")
-        elif med and q.total_price > 2.5 * med:
+        elif q.line.pack_size != request.medicine.pack_size or q.line.quantity_packs < requested_quantity:
+            results[q.id] = ToolResult(tool="compare_quote_prices", passed=True, detail="Price comparison deferred because pack size or availability is not comparable")
+        elif med and q.line.unit_price * requested_quantity > 2.5 * med:
             results[q.id] = ToolResult(tool="compare_quote_prices", passed=False, detail="Price exceeds 2.5× median anomaly threshold")
         else:
             results[q.id] = ToolResult(tool="compare_quote_prices", passed=True, detail="Currency matches and price is within deterministic threshold")
@@ -73,14 +87,16 @@ def evaluate_quote(request: ProcurementRequest, supplier: Supplier, quote: Suppl
     return EligibilityResult(supplier_id=supplier.id, quote_id=quote.id, eligible=all(c.passed for c in checks), reasons=[c.detail for c in checks if not c.passed], tool_results=checks)
 
 
-def rank_eligible_quotes(items: list[tuple[Supplier, SupplierQuote, EligibilityResult]]) -> list[QuoteScore]:
+def rank_eligible_quotes(request: ProcurementRequest, items: list[tuple[Supplier, SupplierQuote, EligibilityResult]]) -> list[QuoteScore]:
     eligible = [(s, q, e) for s, q, e in items if e.eligible]
-    min_price = min((q.total_price for _, q, _ in eligible), default=1)
+    requested_quantity = request.medicine.quantity or 0
+    min_price = min((q.line.unit_price * requested_quantity for _, q, _ in eligible), default=1)
     min_delivery = min((q.lead_time_days for _, q, _ in eligible), default=1)
     scores = []
     for s, q, e in items:
-        score = None if not e.eligible else round(.5 * min_price / q.total_price + .25 * min_delivery / q.lead_time_days + .25 * s.reliability_score, 4)
-        scores.append(QuoteScore(supplier_id=s.id, quote_id=q.id, total_price=q.total_price, currency=q.currency, lead_time_days=q.lead_time_days, reliability=s.reliability_score, score=score, eligible=e.eligible, reasons=e.reasons))
+        requested_total = round(q.line.unit_price * requested_quantity, 2)
+        score = None if not e.eligible else round(.5 * min_price / requested_total + .25 * min_delivery / q.lead_time_days + .25 * s.reliability_score, 4)
+        scores.append(QuoteScore(supplier_id=s.id, quote_id=q.id, total_price=requested_total, unit_price=q.line.unit_price, currency=q.currency, requested_quantity_packs=requested_quantity, available_quantity_packs=q.line.quantity_packs, offered_pack_size=q.line.pack_size, lead_time_days=q.lead_time_days, reliability=s.reliability_score, score=score, eligible=e.eligible, reasons=e.reasons))
     return sorted(scores, key=lambda x: (not x.eligible, -(x.score or 0)))
 
 

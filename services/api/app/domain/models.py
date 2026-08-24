@@ -72,7 +72,7 @@ class QuoteLine(BaseModel):
     strength: str
     dosage_form: str
     pack_size: int
-    quantity_packs: int
+    quantity_packs: int = Field(gt=0, description="Maximum packs currently available from the supplier")
     unit_price: float = Field(gt=0)
 
 
@@ -116,7 +116,11 @@ class QuoteScore(BaseModel):
     supplier_id: str
     quote_id: str
     total_price: float
+    unit_price: float = 0
     currency: str
+    requested_quantity_packs: int = 0
+    available_quantity_packs: int = 0
+    offered_pack_size: int = 0
     lead_time_days: int
     reliability: float
     score: float | None = None
@@ -234,6 +238,7 @@ class SignupRequest(BaseModel):
     display_name: str = Field(min_length=2, max_length=80)
     organization: str = Field(min_length=2, max_length=120)
     password: str = Field(min_length=12, max_length=128)
+    account_type: Literal["buyer", "supplier"] = "buyer"
 
     @field_validator("display_name", "organization")
     @classmethod
@@ -270,3 +275,69 @@ class SupplierDashboardSummary(BaseModel):
     quote_count: int
     eligible_destination_count: int
     compliance_state: str
+    submissions: list["SupplierSubmission"] = []
+
+
+class SupplierProfileSubmissionRequest(BaseModel):
+    display_name: str = Field(min_length=2, max_length=120)
+    destinations: list[str] = Field(min_length=1, max_length=12)
+    cold_chain: bool
+    authorization_expiry: date
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+    @field_validator("display_name")
+    @classmethod
+    def clean_display_name(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @field_validator("destinations")
+    @classmethod
+    def clean_destinations(cls, values: list[str]) -> list[str]:
+        cleaned = list(dict.fromkeys(" ".join(value.split()).title() for value in values if value.strip()))
+        if not cleaned:
+            raise ValueError("at least one destination is required")
+        return cleaned
+
+
+class SupplierQuoteSubmissionRequest(BaseModel):
+    quote_id: str | None = Field(default=None, max_length=100)
+    action: Literal["upsert", "withdraw"] = "upsert"
+    medicine_name: str = Field(min_length=2, max_length=120)
+    strength: str = Field(min_length=1, max_length=40)
+    dosage_form: str = Field(min_length=2, max_length=40)
+    pack_size: int = Field(gt=0, le=10000)
+    available_quantity_packs: int = Field(gt=0, le=10000000)
+    unit_price: float = Field(gt=0, le=10000000)
+    currency: str = Field(min_length=3, max_length=3)
+    lead_time_days: int = Field(gt=0, le=365)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+    @field_validator("medicine_name", "strength", "dosage_form")
+    @classmethod
+    def clean_quote_text(cls, value: str) -> str:
+        return " ".join(value.split()).lower()
+
+    @field_validator("currency")
+    @classmethod
+    def clean_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class SupplierSubmission(BaseModel):
+    id: str
+    supplier_id: str
+    kind: Literal["profile", "quote"]
+    payload: dict
+    status: Literal["pending", "approved", "rejected"] = "pending"
+    reviewer_note: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
+
+
+class SupplierSubmissionDecisionRequest(BaseModel):
+    action: Literal["approve", "reject"]
+    note: str = Field(min_length=2, max_length=1000)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+SupplierDashboardSummary.model_rebuild()

@@ -78,7 +78,7 @@ class AgentService:
                     eligibility = evaluate_quote(request, supplier, quote, price_results[quote.id])
                     evaluated.append((supplier, quote, eligibility))
                 tool_sequence.extend(planned_tools)
-                quotes = rank_eligible_quotes(evaluated)
+                quotes = rank_eligible_quotes(request, evaluated)
                 eligible = [q for q in quotes if q.eligible]
                 risky_reasons = []
                 if not eligible:
@@ -88,7 +88,7 @@ class AgentService:
                 review_reasons = risky_reasons
                 if risky_reasons:
                     best = eligible[0].supplier_id if eligible else None
-                    decision = AgentDecision(status="review_required", recommendation_supplier_id=best, summary="Human review is required before relying on this recommendation.", human_review_required=True, escalation_reasons=risky_reasons, trace_id=trace_id)
+                    decision = AgentDecision(status="review_required", recommendation_supplier_id=best, summary="No eligible quotation is available. Staff review is required.", human_review_required=True, escalation_reasons=risky_reasons, trace_id=trace_id)
                     assistant = Message(role="assistant", content=decision.summary)
                 else:
                     best = eligible[0]

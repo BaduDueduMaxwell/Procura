@@ -39,6 +39,10 @@ def test_destination_cold_chain_units_and_deadline():
     cold = request(medicine=req.medicine.model_copy(update={"cold_chain_required": True}))
     assert not validate_cold_chain_capability(cold, kora).passed
     assert validate_quote_units(req, northstar.quotes[0]).passed
+    smaller = request(medicine=req.medicine.model_copy(update={"quantity": 1500}))
+    assert validate_quote_units(smaller, northstar.quotes[0]).passed
+    too_many = request(medicine=req.medicine.model_copy(update={"quantity": 2500}))
+    assert "Availability shortfall" in validate_quote_units(too_many, northstar.quotes[0]).detail
     assert not validate_quote_units(request(medicine=req.medicine.model_copy(update={"pack_size": 50})), northstar.quotes[0]).passed
     assert validate_delivery_deadline(req, northstar.quotes[0]).passed and not validate_delivery_deadline(req, kora.quotes[0]).passed
 
@@ -46,18 +50,21 @@ def test_destination_cold_chain_units_and_deadline():
 def test_price_comparison_and_ranking():
     req = request(); matches = search_synthetic_suppliers(req, synthetic_suppliers()); prices = compare_quote_prices(req, matches)
     evaluated = [(s, q, evaluate_quote(req, s, q, prices[q.id])) for s, q in matches]
-    ranked = rank_eligible_quotes(evaluated)
+    ranked = rank_eligible_quotes(req, evaluated)
     assert ranked[0].supplier_id == "northstar" and ranked[0].eligible
     assert ranked[1].supplier_id == "kora" and not ranked[1].eligible
 
 
 def test_seeded_catalog_supports_multiple_medicines():
-    req = request(medicine=MedicineRequirement(medicine_name="paracetamol", strength="500 mg", dosage_form="tablet", quantity=5000, pack_size=100), max_lead_time_days=18)
+    req = request(medicine=MedicineRequirement(medicine_name="paracetamol", strength="500 mg", dosage_form="tablet", quantity=1500, pack_size=20), max_lead_time_days=18)
     matches = search_synthetic_suppliers(req, synthetic_suppliers())
     assert {quote.line.medicine_name for _, quote in matches} == {"paracetamol"}
     prices = compare_quote_prices(req, matches)
-    ranked = rank_eligible_quotes([(supplier, quote, evaluate_quote(req, supplier, quote, prices[quote.id])) for supplier, quote in matches])
-    assert ranked[0].eligible and ranked[0].supplier_id in {"northstar", "kora"}
+    ranked = rank_eligible_quotes(req, [(supplier, quote, evaluate_quote(req, supplier, quote, prices[quote.id])) for supplier, quote in matches])
+    assert ranked[0].eligible and ranked[0].supplier_id == "northstar"
+    assert ranked[0].total_price == 690.0
+    assert ranked[0].requested_quantity_packs == 1500
+    assert ranked[0].available_quantity_packs == 5000
 
 
 def test_currency_mismatch_is_not_converted():

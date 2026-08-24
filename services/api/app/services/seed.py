@@ -2,7 +2,7 @@ import json
 from datetime import date
 
 from app.domain.models import QuoteLine, Supplier, SupplierAuthorization, SupplierCapability, SupplierQuote
-from app.models.database import QuoteRow, SessionLocal, SupplierRow
+from app.models.database import AppStateRow, QuoteRow, SessionLocal, SupplierRow
 from sqlalchemy import select
 
 SEED_SUPPLIERS = [
@@ -19,11 +19,12 @@ SEED_QUOTES = [
     {"id":"q-kora","supplier":"kora","medicine":"amoxicillin","strength":"500 mg","form":"capsule","pack":100,"quantity":2000,"price":4.85,"lead":30,"currency":"USD"},
     {"id":"q-baobab","supplier":"baobab","medicine":"amoxicillin","strength":"500 mg","form":"tablet","pack":100,"quantity":2000,"price":4.60,"lead":18,"currency":"USD"},
     {"id":"q-lumina","supplier":"lumina","medicine":"amoxicillin","strength":"500 mg","form":"tablet","pack":50,"quantity":2000,"price":13.80,"lead":17,"currency":"USD"},
-    {"id":"q-cedar","supplier":"cedar","medicine":"amoxicillin","strength":"500 mg","form":"tablet","pack":100,"quantity":2000,"price":4.80,"lead":16,"currency":"USD"},
-    # Paracetamol 500 mg tablets, 5,000 packs of 100
-    {"id":"q-northstar-paracetamol","supplier":"northstar","medicine":"paracetamol","strength":"500 mg","form":"tablet","pack":100,"quantity":5000,"price":2.30,"lead":12,"currency":"USD"},
+    {"id":"q-baobab-amox-50","supplier":"baobab","medicine":"amoxicillin","strength":"500 mg","form":"tablet","pack":50,"quantity":3000,"price":4.60,"lead":18,"currency":"USD"},
+    {"id":"q-cedar","supplier":"cedar","medicine":"amoxicillin","strength":"500 mg","form":"tablet","pack":50,"quantity":3000,"price":4.80,"lead":16,"currency":"USD"},
+    # Paracetamol 500 mg tablets. Quantity is available capacity, not an order quantity.
+    {"id":"q-northstar-paracetamol","supplier":"northstar","medicine":"paracetamol","strength":"500 mg","form":"tablet","pack":20,"quantity":5000,"price":0.46,"lead":12,"currency":"USD"},
     {"id":"q-kora-paracetamol","supplier":"kora","medicine":"paracetamol","strength":"500 mg","form":"tablet","pack":100,"quantity":5000,"price":2.18,"lead":16,"currency":"USD"},
-    {"id":"q-baobab-paracetamol","supplier":"baobab","medicine":"paracetamol","strength":"500 mg","form":"tablet","pack":100,"quantity":5000,"price":2.05,"lead":14,"currency":"USD"},
+    {"id":"q-baobab-paracetamol","supplier":"baobab","medicine":"paracetamol","strength":"500 mg","form":"tablet","pack":20,"quantity":5000,"price":0.41,"lead":14,"currency":"USD"},
     # Ceftriaxone 1 g vials, 500 packs of 10
     {"id":"q-northstar-ceftriaxone","supplier":"northstar","medicine":"ceftriaxone","strength":"1 g","form":"vial","pack":10,"quantity":500,"price":18.40,"lead":18,"currency":"USD"},
     {"id":"q-kora-ceftriaxone","supplier":"kora","medicine":"ceftriaxone","strength":"1 g","form":"vial","pack":10,"quantity":500,"price":17.90,"lead":24,"currency":"USD"},
@@ -33,20 +34,34 @@ SEED_QUOTES = [
     {"id":"q-kora-insulin","supplier":"kora","medicine":"insulin","strength":"100 units/ml","form":"vial","pack":10,"quantity":300,"price":39.50,"lead":14,"currency":"USD"},
     {"id":"q-cedar-insulin","supplier":"cedar","medicine":"insulin","strength":"100 units/ml","form":"vial","pack":10,"quantity":300,"price":41.25,"lead":16,"currency":"USD"},
 ]
+CATALOG_VERSION = "procura-catalog-v2-capacity"
 
 
 def seed_supplier_database() -> None:
-    """Idempotently seed fictional suppliers. Runtime reads always come from SQLite."""
+    """Idempotently synchronize the application-owned fictional supplier catalog."""
     with SessionLocal() as db:
-        existing_suppliers = set(db.scalars(select(SupplierRow.id)).all())
+        state = db.get(AppStateRow, "supplier_catalog_version")
+        if state and state.value == CATALOG_VERSION:
+            return
         for item in SEED_SUPPLIERS:
-            if item["id"] not in existing_suppliers:
-                db.add(SupplierRow(id=item["id"], display_name=item["name"], authorization_status=item["status"], authorization_expiry=date.fromisoformat(item["expiry"]) if item["expiry"] else None, destinations_json=json.dumps(item["destinations"]), cold_chain=item["cold"], reliability_score=item["reliability"], synthetic=True))
+            row = db.get(SupplierRow, item["id"])
+            values = {"display_name":item["name"], "authorization_status":item["status"], "authorization_expiry":date.fromisoformat(item["expiry"]) if item["expiry"] else None, "destinations_json":json.dumps(item["destinations"]), "cold_chain":item["cold"], "reliability_score":item["reliability"], "synthetic":True}
+            if row:
+                for key, value in values.items(): setattr(row, key, value)
+            else:
+                db.add(SupplierRow(id=item["id"], **values))
         db.flush()
-        existing_quotes = set(db.scalars(select(QuoteRow.id)).all())
         for quote in SEED_QUOTES:
-            if quote["id"] not in existing_quotes:
-                db.add(QuoteRow(id=quote["id"], supplier_id=quote["supplier"], currency=quote["currency"], lead_time_days=quote["lead"], medicine_name=quote["medicine"], strength=quote["strength"], dosage_form=quote["form"], pack_size=quote["pack"], quantity_packs=quote["quantity"], unit_price=quote["price"]))
+            row = db.get(QuoteRow, quote["id"])
+            values = {"supplier_id":quote["supplier"], "currency":quote["currency"], "lead_time_days":quote["lead"], "medicine_name":quote["medicine"], "strength":quote["strength"], "dosage_form":quote["form"], "pack_size":quote["pack"], "quantity_packs":quote["quantity"], "unit_price":quote["price"]}
+            if row:
+                for key, value in values.items(): setattr(row, key, value)
+            else:
+                db.add(QuoteRow(id=quote["id"], **values))
+        if state:
+            state.value = CATALOG_VERSION
+        else:
+            db.add(AppStateRow(key="supplier_catalog_version", value=CATALOG_VERSION))
         db.commit()
 
 

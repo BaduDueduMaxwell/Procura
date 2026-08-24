@@ -1,7 +1,7 @@
 import json
 import statistics
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,9 +23,23 @@ from app.domain.models import (
     ReviewDecisionRequest,
     SignupRequest,
     SupplierDashboardSummary,
+    SupplierProfileSubmissionRequest,
+    SupplierQuoteSubmissionRequest,
+    SupplierSubmission,
+    SupplierSubmissionDecisionRequest,
     TraceSummary,
 )
-from app.models.database import ExecutionRow, ResourceOwnerRow, ReviewRow, SessionLocal, UserRow, init_db
+from app.models.database import (
+    ExecutionRow,
+    QuoteRow,
+    ResourceOwnerRow,
+    ReviewRow,
+    SessionLocal,
+    SupplierRow,
+    SupplierSubmissionRow,
+    UserRow,
+    init_db,
+)
 from app.observability.adapters import Observability
 from app.services.agent_service import AgentService
 from app.services.auth import (
@@ -90,8 +104,13 @@ def signup(body: SignupRequest, request: Request, response: Response):
     with SessionLocal() as db:
         if db.scalar(select(UserRow).where(UserRow.email == email)):
             raise HTTPException(409, "An account with that email already exists")
-        row = UserRow(id=str(uuid4()), email=email, display_name=body.display_name, organization=body.organization, password_hash=password_hash.hash(body.password), role="buyer")
-        db.add(row); db.commit(); db.refresh(row)
+        row = UserRow(id=str(uuid4()), email=email, display_name=body.display_name, organization=body.organization, password_hash=password_hash.hash(body.password), role=body.account_type)
+        db.add(row); db.flush()
+        if body.account_type == "supplier":
+            supplier_id = f"supplier-{row.id}"
+            db.add(SupplierRow(id=supplier_id, display_name=body.organization, authorization_status="missing", authorization_expiry=None, destinations_json="[]", cold_chain=False, reliability_score=0, synthetic=True))
+            db.add(ResourceOwnerRow(id=str(uuid4()), resource_type="supplier_profile", resource_id=supplier_id, user_id=row.id))
+        db.commit(); db.refresh(row)
         user = public_user(row)
     create_session(user.id, response, settings)
     return user
@@ -138,12 +157,111 @@ def supplier_dashboard(user: AuthUser = Depends(current_user)):
         raise HTTPException(403, "Supplier workspace required")
     with SessionLocal() as db:
         link = db.scalar(select(ResourceOwnerRow).where(ResourceOwnerRow.resource_type == "supplier_profile", ResourceOwnerRow.user_id == user.id))
+        submission_rows = db.scalars(select(SupplierSubmissionRow).where(SupplierSubmissionRow.user_id == user.id).order_by(SupplierSubmissionRow.created_at.desc())).all()
     if not link:
         raise HTTPException(404, "Supplier profile not found")
     supplier = next((item for item in synthetic_suppliers() if item.id == link.resource_id), None)
     if not supplier:
         raise HTTPException(404, "Supplier profile not found")
-    return SupplierDashboardSummary(supplier=supplier, quote_count=len(supplier.quotes), eligible_destination_count=len(supplier.capability.destinations), compliance_state=supplier.authorization.status)
+    submissions = [supplier_submission(row) for row in submission_rows]
+    return SupplierDashboardSummary(supplier=supplier, quote_count=len(supplier.quotes), eligible_destination_count=len(supplier.capability.destinations), compliance_state=supplier.authorization.status, submissions=submissions)
+
+
+def supplier_submission(row: SupplierSubmissionRow) -> SupplierSubmission:
+    return SupplierSubmission(id=row.id, supplier_id=row.supplier_id, kind=row.kind, payload=json.loads(row.payload), status=row.status, reviewer_note=row.reviewer_note, reviewed_at=row.reviewed_at, created_at=row.created_at)
+
+
+def linked_supplier_id(user: AuthUser, db) -> str:
+    if user.role != "supplier":
+        raise HTTPException(403, "Supplier workspace required")
+    link = db.scalar(select(ResourceOwnerRow).where(ResourceOwnerRow.resource_type == "supplier_profile", ResourceOwnerRow.user_id == user.id))
+    if not link:
+        raise HTTPException(404, "Supplier profile not found")
+    return link.resource_id
+
+
+def create_supplier_submission(user: AuthUser, kind: str, payload: dict, idempotency_key: str) -> SupplierSubmission:
+    with SessionLocal() as db:
+        existing = db.scalar(select(SupplierSubmissionRow).where(SupplierSubmissionRow.idempotency_key == idempotency_key))
+        if existing:
+            if existing.user_id != user.id:
+                raise HTTPException(409, "Idempotency key is already in use")
+            return supplier_submission(existing)
+        supplier_id = linked_supplier_id(user, db)
+        row = SupplierSubmissionRow(id=str(uuid4()), supplier_id=supplier_id, user_id=user.id, kind=kind, payload=json.dumps(payload), status="pending", idempotency_key=idempotency_key)
+        db.add(row); db.commit(); db.refresh(row)
+        return supplier_submission(row)
+
+
+@app.post("/api/supplier/submissions/profile", response_model=SupplierSubmission, status_code=201)
+def submit_supplier_profile(body: SupplierProfileSubmissionRequest, user: AuthUser = Depends(current_user)):
+    payload = body.model_dump(mode="json", exclude={"idempotency_key"})
+    return create_supplier_submission(user, "profile", payload, body.idempotency_key)
+
+
+@app.post("/api/supplier/submissions/quotes", response_model=SupplierSubmission, status_code=201)
+def submit_supplier_quote(body: SupplierQuoteSubmissionRequest, user: AuthUser = Depends(current_user)):
+    payload = body.model_dump(mode="json", exclude={"idempotency_key"})
+    return create_supplier_submission(user, "quote", payload, body.idempotency_key)
+
+
+@app.get("/api/supplier-submissions", response_model=list[SupplierSubmission])
+def list_supplier_submissions(_: AuthUser = Depends(staff_user)):
+    with SessionLocal() as db:
+        rows = db.scalars(select(SupplierSubmissionRow).order_by(SupplierSubmissionRow.created_at.desc())).all()
+        return [supplier_submission(row) for row in rows]
+
+
+@app.post("/api/supplier-submissions/{submission_id}/decision", response_model=SupplierSubmission)
+def decide_supplier_submission(submission_id: str, body: SupplierSubmissionDecisionRequest, user: AuthUser = Depends(staff_user)):
+    with SessionLocal() as db:
+        row = db.get(SupplierSubmissionRow, submission_id)
+        if not row:
+            raise HTTPException(404, "Supplier submission not found")
+        keys = json.loads(row.decision_keys or "[]")
+        if body.idempotency_key in keys:
+            return supplier_submission(row)
+        if row.status != "pending":
+            raise HTTPException(409, "Supplier submission has already been decided")
+        if body.action == "approve":
+            payload = json.loads(row.payload)
+            supplier = db.get(SupplierRow, row.supplier_id)
+            if not supplier:
+                raise HTTPException(404, "Supplier profile not found")
+            if row.kind == "profile":
+                expiry = date.fromisoformat(payload["authorization_expiry"])
+                supplier.display_name = payload["display_name"]
+                supplier.destinations_json = json.dumps(payload["destinations"])
+                supplier.cold_chain = payload["cold_chain"]
+                supplier.authorization_expiry = expiry
+                supplier.authorization_status = "authorized" if expiry >= datetime.now(UTC).date() else "expired"
+            else:
+                quote_id = payload.get("quote_id")
+                existing_quote = db.get(QuoteRow, quote_id) if quote_id else None
+                if existing_quote and existing_quote.supplier_id != row.supplier_id:
+                    raise HTTPException(403, "Quotation does not belong to this supplier")
+                if payload["action"] == "withdraw":
+                    if not existing_quote:
+                        raise HTTPException(404, "Quotation not found")
+                    db.delete(existing_quote)
+                else:
+                    quote = existing_quote or QuoteRow(id=f"supplier-quote-{row.id}", supplier_id=row.supplier_id)
+                    quote.currency = payload["currency"]
+                    quote.lead_time_days = payload["lead_time_days"]
+                    quote.medicine_name = payload["medicine_name"]
+                    quote.strength = payload["strength"]
+                    quote.dosage_form = payload["dosage_form"]
+                    quote.pack_size = payload["pack_size"]
+                    quote.quantity_packs = payload["available_quantity_packs"]
+                    quote.unit_price = payload["unit_price"]
+                    db.add(quote)
+        row.status = "approved" if body.action == "approve" else "rejected"
+        row.reviewer_id = user.id
+        row.reviewer_note = body.note
+        row.reviewed_at = datetime.now(UTC)
+        keys.append(body.idempotency_key); row.decision_keys = json.dumps(keys)
+        db.commit(); db.refresh(row)
+        return supplier_submission(row)
 
 
 @app.post("/api/conversations", response_model=Conversation, status_code=201)

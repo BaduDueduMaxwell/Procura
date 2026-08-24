@@ -8,6 +8,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 class Base(DeclarativeBase): pass
 
 
+class AppStateRow(Base):
+    __tablename__ = "app_state"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(String(200))
+
+
 class ConversationRow(Base):
     __tablename__ = "conversations"
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -74,6 +80,22 @@ class SupplierRow(Base):
     cold_chain: Mapped[bool] = mapped_column(Boolean)
     reliability_score: Mapped[float] = mapped_column(Float)
     synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class SupplierSubmissionRow(Base):
+    __tablename__ = "supplier_submissions"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    supplier_id: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    payload: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), unique=True)
+    decision_keys: Mapped[str] = mapped_column(Text, default="[]")
+    reviewer_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class QuoteRow(Base):

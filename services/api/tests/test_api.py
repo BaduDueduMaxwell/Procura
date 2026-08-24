@@ -25,6 +25,18 @@ def test_health_and_happy_path(client):
     assert body["decision"]["no_transaction_completed"]
 
 
+def test_custom_quantity_uses_availability_and_requested_total(client):
+    cid = new_conversation(client)
+    payload = {"content":"1,500 packs of paracetamol 500 mg tablets, pack size 20, to Accra within 18 days in USD", "idempotency_key":"capacity-001"}
+    body = client.post(f"/api/conversations/{cid}/messages", json=payload).json()
+    assert body["decision"]["status"] == "recommended"
+    assert body["decision"]["recommendation_supplier_id"] == "northstar"
+    northstar = next(quote for quote in body["quotes"] if quote["supplier_id"] == "northstar")
+    assert northstar["total_price"] == 690.0
+    assert northstar["requested_quantity_packs"] == 1500
+    assert northstar["available_quantity_packs"] == 5000
+
+
 def test_clarification_is_business_response(client):
     cid = new_conversation(client)
     body = client.post(f"/api/conversations/{cid}/messages", json={"content":"We need amoxicillin", "idempotency_key":"clarify-01"}).json()
@@ -109,3 +121,30 @@ def test_customer_and_supplier_dashboards_are_role_isolated(client):
     assert supplier.status_code == 200 and supplier.json()["supplier"]["id"] == "northstar"
     assert client.get("/api/dashboard/summary").status_code == 403
     assert client.post("/api/conversations").status_code == 403
+
+
+def test_supplier_onboarding_submission_and_staff_approval(client):
+    signup = client.post("/api/auth/signup", json={"email":"new-supplier@example.com","display_name":"Supply Lead","organization":"Aster Medical Supply","password":"A-supplier-password-2026!","account_type":"supplier"})
+    assert signup.status_code == 201 and signup.json()["role"] == "supplier"
+    dashboard = client.get("/api/supplier/dashboard").json()
+    assert dashboard["compliance_state"] == "missing" and dashboard["quote_count"] == 0
+
+    profile = client.post("/api/supplier/submissions/profile", json={"display_name":"Aster Medical Supply","destinations":["ghana","kenya"],"cold_chain":True,"authorization_expiry":"2028-12-31","idempotency_key":"supplier-profile-01"})
+    assert profile.status_code == 201 and profile.json()["status"] == "pending"
+    quote = client.post("/api/supplier/submissions/quotes", json={"medicine_name":"Paracetamol","strength":"500 mg","dosage_form":"tablet","pack_size":20,"available_quantity_packs":4000,"unit_price":0.44,"currency":"usd","lead_time_days":13,"idempotency_key":"supplier-quote-01"})
+    assert quote.status_code == 201 and quote.json()["status"] == "pending"
+    assert client.post("/api/supplier/submissions/quotes", json={"medicine_name":"Paracetamol","strength":"500 mg","dosage_form":"tablet","pack_size":20,"available_quantity_packs":4000,"unit_price":0.44,"currency":"usd","lead_time_days":13,"idempotency_key":"supplier-quote-01"}).json()["id"] == quote.json()["id"]
+
+    client.post("/api/auth/logout"); login_reviewer(client)
+    submissions = client.get("/api/supplier-submissions").json()
+    assert len(submissions) == 2
+    for submission in submissions:
+        decision = client.post(f"/api/supplier-submissions/{submission['id']}/decision", json={"action":"approve","note":"Evidence reviewed","idempotency_key":f"approve-{submission['id']}"})
+        assert decision.status_code == 200 and decision.json()["status"] == "approved"
+
+    client.post("/api/auth/logout")
+    assert client.post("/api/auth/login", json={"email":"new-supplier@example.com","password":"A-supplier-password-2026!"}).status_code == 200
+    dashboard = client.get("/api/supplier/dashboard").json()
+    assert dashboard["compliance_state"] == "authorized"
+    assert dashboard["quote_count"] == 1
+    assert {item["status"] for item in dashboard["submissions"]} == {"approved"}

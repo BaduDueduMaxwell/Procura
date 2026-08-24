@@ -6,12 +6,12 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 
 ## Why it stands out
 
-- A polished responsive SaaS interface with a public landing page, signup, login, workspace, staff review, operations, and about views.
+- A polished responsive SaaS interface with a public landing page and stable routes for buyer, supplier, reviewer, and operations workspaces.
 - Secure account sessions using Argon2 password hashes, random HttpOnly cookies, role checks, origin validation, input limits, security headers, and generic login failures.
 - A typed provider boundary supporting a no-key local provider and an optional hosted provider.
 - Deterministic Python tools own supplier search, authorization, destination, cold-chain, units, deadlines, currency, price anomalies, and ranking.
 - Unsafe outcomes create persistent human-review cases. Reviewer actions are idempotent, timestamped, and do not create transactions.
-- Supplier and quote fixtures are seeded idempotently into SQLite and loaded from the database at runtime.
+- Supplier and quote records are loaded from the database at runtime; supplier-submitted changes require staff verification before becoming active evidence.
 - Shared trace IDs connect local metrics, optional Langfuse observations, and privacy-safe Sentry errors.
 - Twelve readable deterministic evaluations and separate backend/frontend gate tests.
 
@@ -19,7 +19,7 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 
 ```mermaid
 flowchart LR
-  U[Buyer or reviewer] --> W[Next.js web app]
+  U[Buyer, supplier, or reviewer] --> W[Next.js web app]
   W -->|HttpOnly session + typed JSON| A[FastAPI API]
   A --> O[Explicit agent orchestrator]
   O --> P[Local or hosted LLM provider]
@@ -51,7 +51,7 @@ Email: reviewer@procura.example
 Password: Procura-Reviewer-2026!
 ```
 
-This local reviewer account is never created when `APP_ENV=production`. New signups receive the `buyer` role and cannot access staff-only endpoints.
+This local reviewer account is never created when `APP_ENV=production`. Public signup supports buyer and supplier accounts; reviewer and admin privileges cannot be self-assigned.
 
 An invite-linked supplier portal account is also seeded in local development:
 
@@ -60,7 +60,9 @@ Email: supplier@procura.example
 Password: Procura-Supplier-2026!
 ```
 
-Supplier accounts can see only their linked profile, authorization evidence, capabilities, and submitted quotations. They cannot access buyer conversations or staff operations.
+Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. Changes remain pending until a reviewer approves them. Suppliers cannot access buyer conversations or staff operations.
+
+Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, and `/operations`. Role checks are enforced by the API as well as the interface.
 
 ### Run without Docker
 
@@ -95,7 +97,7 @@ make down    # stop Docker services
 ## Product walkthrough
 
 1. Create an account or sign in with the local reviewer account.
-2. Submit: `5,000 packs of paracetamol 500 mg tablets, pack size 100, delivered to Accra within 18 days in USD.`
+2. Submit: `1,500 packs of paracetamol 500 mg tablets, pack size 20, delivered to Accra within 18 days in USD.`
 3. Inspect the structured request, eligibility evidence, recommendation, trace ID, and policy version.
 4. Submit `300 packs of insulin 100 units/ml vials, pack size 10, cold chain, delivered to Ghana within 21 days in USD.` to inspect cold-chain exclusions.
 5. Sign in as the reviewer, open Staff review, and record an approval, rejection, or clarification request.
@@ -112,6 +114,10 @@ make down    # stop Docker services
 | `GET` | `/api/auth/me` | Session |
 | `GET` | `/api/dashboard/summary` | Buyer or staff |
 | `GET` | `/api/supplier/dashboard` | Linked supplier |
+| `POST` | `/api/supplier/submissions/profile` | Linked supplier |
+| `POST` | `/api/supplier/submissions/quotes` | Linked supplier |
+| `GET` | `/api/supplier-submissions` | Reviewer or admin |
+| `POST` | `/api/supplier-submissions/{id}/decision` | Reviewer or admin |
 | `POST` | `/api/conversations` | Buyer or staff |
 | `GET` | `/api/conversations/{id}` | Owner or staff |
 | `POST` | `/api/conversations/{id}/messages` | Owner or staff |
