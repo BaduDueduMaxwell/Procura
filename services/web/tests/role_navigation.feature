@@ -1,5 +1,10 @@
 Feature: Role-aware navigation
 
+  Scenario: Collapsed navigation remains understandable
+    Given the navigation is collapsed at a tablet width
+    When a buyer moves through the navigation with a keyboard or screen reader
+    Then Dashboard and Workspace retain their accessible names
+
   Scenario: A reviewer opens an administrator URL
     Given a signed-in reviewer
     When the reviewer opens the operations URL

@@ -136,7 +136,7 @@ def test_seeded_buyer_has_customer_only_permissions(client):
 
 def test_buyer_catalog_is_built_from_current_quote_records(client):
     login_seeded_buyer(client)
-    response = client.get("/api/catalog/medicines")
+    response = client.get("/api/catalog/medicines?limit=12")
     assert response.status_code == 200
     catalog = response.json()
     medicines = {item["medicine_name"] for item in catalog}
@@ -147,6 +147,16 @@ def test_buyer_catalog_is_built_from_current_quote_records(client):
     assert paracetamol["destinations"] == ["Ghana", "Kenya"]
     assert paracetamol["unit_price_from"] == 0.41
     assert paracetamol["request_starter"] == "We need paracetamol 500 mg tablets, pack size 20."
+
+
+def test_buyer_catalog_search_is_server_side_and_bounded(client):
+    login_seeded_buyer(client)
+    response = client.get("/api/catalog/medicines?q=para&limit=1")
+    assert response.status_code == 200
+    catalog = response.json()
+    assert len(catalog) == 1
+    assert catalog[0]["medicine_name"] == "paracetamol"
+    assert client.get("/api/catalog/medicines?limit=1000").status_code == 422
 
 
 def test_catalog_role_boundary_blocks_supplier_and_reviewer(client):

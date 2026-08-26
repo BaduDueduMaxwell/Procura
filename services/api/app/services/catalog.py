@@ -4,14 +4,44 @@ from datetime import UTC, datetime
 
 from app.domain.models import MedicineCatalogItem
 from app.models.database import QuoteRow, SessionLocal, SupplierRow
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 
 
-def list_medicine_catalog() -> list[MedicineCatalogItem]:
-    """Build the buyer catalogue from approved supplier and quotation records."""
+def list_medicine_catalog(query: str = "", limit: int = 6) -> list[MedicineCatalogItem]:
+    """Search a bounded set of medicine variants from approved quotation records."""
+    normalized_query = " ".join(query.lower().split())
     with SessionLocal() as db:
-        quotes = list(db.scalars(select(QuoteRow)).all())
-        suppliers = {row.id: row for row in db.scalars(select(SupplierRow)).all()}
+        variant_query = select(
+            QuoteRow.medicine_name,
+            QuoteRow.strength,
+            QuoteRow.dosage_form,
+            QuoteRow.pack_size,
+        ).distinct()
+        if normalized_query:
+            variant_query = variant_query.where(or_(
+                func.lower(QuoteRow.medicine_name).contains(normalized_query, autoescape=True),
+                func.lower(QuoteRow.strength).contains(normalized_query, autoescape=True),
+                func.lower(QuoteRow.dosage_form).contains(normalized_query, autoescape=True),
+            ))
+        keys = list(db.execute(variant_query.order_by(
+            QuoteRow.medicine_name,
+            QuoteRow.strength,
+            QuoteRow.dosage_form,
+            QuoteRow.pack_size,
+        ).limit(limit)).all())
+        if not keys:
+            return []
+        quotes = list(db.scalars(select(QuoteRow).where(or_(*[
+            and_(
+                QuoteRow.medicine_name == key.medicine_name,
+                QuoteRow.strength == key.strength,
+                QuoteRow.dosage_form == key.dosage_form,
+                QuoteRow.pack_size == key.pack_size,
+            )
+            for key in keys
+        ]))).all())
+        supplier_ids = {quote.supplier_id for quote in quotes}
+        suppliers = {row.id: row for row in db.scalars(select(SupplierRow).where(SupplierRow.id.in_(supplier_ids))).all()}
 
     grouped: dict[tuple[str, str, str, int], list[QuoteRow]] = defaultdict(list)
     for quote in quotes:

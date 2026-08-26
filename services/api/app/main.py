@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -159,10 +159,14 @@ def customer_dashboard(user: AuthUser = Depends(current_user)):
 
 
 @app.get("/api/catalog/medicines", response_model=list[MedicineCatalogItem])
-def medicine_catalog(user: AuthUser = Depends(current_user)):
+def medicine_catalog(
+    q: str = Query(default="", max_length=120),
+    limit: int = Query(default=6, ge=1, le=12),
+    user: AuthUser = Depends(current_user),
+):
     if user.role not in {"buyer", "admin"}:
         raise HTTPException(403, "Customer workspace required")
-    return list_medicine_catalog()
+    return list_medicine_catalog(q, limit)
 
 
 @app.get("/api/supplier/dashboard", response_model=SupplierDashboardSummary)

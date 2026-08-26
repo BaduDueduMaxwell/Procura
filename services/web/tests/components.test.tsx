@@ -112,6 +112,8 @@ describe("guided product journey", () => {
     vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count: 0, execution_count: 0, recommendation_count: 0, review_count: 0, recent_decisions: [] });
     render(<Home />);
     expect(await screen.findByRole("heading", { name: "Describe what you need" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute("aria-label", "Dashboard");
+    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("aria-label", "Workspace");
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
     expect(window.location.pathname).toBe("/dashboard");
     expect(await screen.findByRole("heading", { name: "Procurement dashboard" })).toBeVisible();
@@ -122,17 +124,17 @@ describe("guided product journey", () => {
     window.history.replaceState({}, "", "/workspace");
     vi.spyOn(api, "me").mockResolvedValueOnce({ id:"buyer-catalog",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:new Date().toISOString() });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id:"catalog-conversation",messages:[] });
-    vi.spyOn(api, "medicineCatalog").mockResolvedValue([
-      { medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",pack_size:20,quotation_count:2,authorized_supplier_count:1,available_quantity_packs:5000,currencies:["USD"],destinations:["Ghana","Kenya"],cold_chain_available:true,minimum_lead_time_days:12,unit_price_from:.41,unit_price_to:.46,request_starter:"We need paracetamol 500 mg tablets, pack size 20." },
-      { medicine_name:"insulin",strength:"100 units/ml",dosage_form:"vial",pack_size:10,quotation_count:3,authorized_supplier_count:1,available_quantity_packs:300,currencies:["USD"],destinations:["Ghana","Kenya"],cold_chain_available:true,minimum_lead_time_days:14,unit_price_from:39.5,unit_price_to:42,request_starter:"We need insulin 100 units/ml vials, pack size 10." }
-    ]);
+    const paracetamol = { medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",pack_size:20,quotation_count:2,authorized_supplier_count:1,available_quantity_packs:5000,currencies:["USD"],destinations:["Ghana","Kenya"],cold_chain_available:true,minimum_lead_time_days:12,unit_price_from:.41,unit_price_to:.46,request_starter:"We need paracetamol 500 mg tablets, pack size 20." };
+    const insulin = { medicine_name:"insulin",strength:"100 units/ml",dosage_form:"vial",pack_size:10,quotation_count:3,authorized_supplier_count:1,available_quantity_packs:300,currencies:["USD"],destinations:["Ghana","Kenya"],cold_chain_available:true,minimum_lead_time_days:14,unit_price_from:39.5,unit_price_to:42,request_starter:"We need insulin 100 units/ml vials, pack size 10." };
+    const catalogSearch = vi.spyOn(api, "medicineCatalog").mockImplementation(async query => query ? [paracetamol] : [paracetamol, insulin]);
     const send = vi.spyOn(api, "sendMessage");
     render(<Home />);
-    expect(await screen.findByRole("heading", { name:"Browse current quotation coverage" })).toBeVisible();
-    fireEvent.change(screen.getByPlaceholderText("Search medicine or strength"), { target:{value:"paracetamol"} });
-    expect(screen.getByText("5,000 packs")).toBeVisible();
+    expect(await screen.findByRole("heading", { name:"Choose a product variant" })).toBeVisible();
+    fireEvent.change(screen.getByPlaceholderText("Try paracetamol, 500 mg, or vial"), { target:{value:"paracetamol"} });
+    expect(await screen.findByText("1 matching variant")).toBeVisible();
+    expect(catalogSearch).toHaveBeenLastCalledWith("paracetamol", 6);
     expect(screen.queryByText("insulin")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name:"Use in request" }));
+    fireEvent.click(screen.getByRole("button", { name:"Use paracetamol 500 mg in request" }));
     expect(screen.getByLabelText("Procurement request")).toHaveValue("We need paracetamol 500 mg tablets, pack size 20.");
     expect(send).not.toHaveBeenCalled();
   });

@@ -153,13 +153,42 @@ function Nav({ screen, setScreen, onNew, onGuide, user, onLogout }: { screen: Sc
   const items: [Screen, string, typeof MessageSquareText][] = [["dashboard", "Dashboard", LayoutDashboard], ["chat", "Workspace", MessageSquareText], ["reviews", "Request reviews", ClipboardCheck], ["supplierReviews", "Supplier approvals", Building2], ["operations", "Operations", Activity]];
   const visible = user.role === "supplier" ? [["supplier", "Supplier portal", Building2]] as [Screen, string, typeof MessageSquareText][] : user.role === "buyer" ? items.slice(0, 2) : user.role === "reviewer" ? items.slice(2, 4) : items;
   const canCreateRequest = user.role === "buyer" || user.role === "admin";
-  return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{canCreateRequest && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role === "admin" ? "operations admin" : user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
+  return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{canCreateRequest && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} aria-label={label} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role === "admin" ? "operations admin" : user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
 }
 function EmptyState({ onExample, onCatalogItem }: { onExample: (s: string) => void; onCatalogItem: (s: string) => void }) {
-  const [catalog, setCatalog] = useState<MedicineCatalogItem[]>([]); const [query, setQuery] = useState(""); const [catalogError, setCatalogError] = useState(false);
-  useEffect(() => { api.medicineCatalog().then(setCatalog).catch(() => setCatalogError(true)); }, []);
-  const filtered = catalog.filter(item => `${item.medicine_name} ${item.strength} ${item.dosage_form}`.includes(query.trim().toLowerCase()));
-  return <div className="empty-state catalog-empty"><div className="empty-icon"><FileSearch size={25} /></div><h2>Start with a procurement need</h2><p>Search medicines with active supplier quotations, or describe any requirement in the conversation.</p><section className="catalog-panel" data-tour="catalog" aria-labelledby="catalog-heading"><div className="catalog-head"><div><span>Available medicines</span><h3 id="catalog-heading">Browse current quotation coverage</h3></div><label><span className="sr-only">Search available medicines</span><Search size={15}/><input value={query} onChange={event => setQuery(event.target.value.toLowerCase())} placeholder="Search medicine or strength"/></label></div>{catalogError ? <p className="catalog-message" role="alert">Medicine availability could not be loaded.</p> : catalog.length === 0 ? <p className="catalog-message" role="status">Loading current quotation coverage…</p> : filtered.length === 0 ? <p className="catalog-message">No matching medicine has an active quotation.</p> : <div className="catalog-grid">{filtered.map(item => <article key={`${item.medicine_name}-${item.strength}-${item.dosage_form}-${item.pack_size}`}><div className="catalog-title"><div><strong>{item.medicine_name}</strong><span>{item.strength} · {item.dosage_form} · pack {item.pack_size}</span></div><span>{item.authorized_supplier_count} verified</span></div><dl><div><dt>Quotation coverage</dt><dd>{item.quotation_count} active</dd></div><div><dt>Available capacity</dt><dd>{item.available_quantity_packs.toLocaleString()} packs</dd></div><div><dt>Fastest delivery</dt><dd>{item.minimum_lead_time_days} days</dd></div><div><dt>Markets</dt><dd>{item.destinations.join(", ") || "Review required"}</dd></div></dl><div className="catalog-footer"><small>{item.currencies.join(", ")} {item.unit_price_from.toFixed(2)}–{item.unit_price_to.toFixed(2)} per pack</small><button onClick={() => onCatalogItem(item.request_starter)}>Use in request<ArrowRight size={14}/></button></div></article>)}</div>}</section><div className="examples"><span>Or run a complete example</span>{examples.map((example, i) => <button key={example} onClick={() => onExample(example)}><span>0{i + 1}</span>{i === 0 ? "Paracetamol comparison" : i === 1 ? "Cold-chain insulin" : "Ceftriaxone clarification"}<Send size={14} /></button>)}</div></div>;
+  const [catalog, setCatalog] = useState<MedicineCatalogItem[]>([]);
+  const [query, setQuery] = useState("");
+  const [catalogError, setCatalogError] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const searchSequence = useRef(0);
+  useEffect(() => {
+    const sequence = ++searchSequence.current;
+    const timer = window.setTimeout(() => {
+      setCatalogLoading(true); setCatalogError(false);
+      api.medicineCatalog(query.trim(), 6).then(items => {
+        if (sequence === searchSequence.current) setCatalog(items);
+      }).catch(() => {
+        if (sequence === searchSequence.current) setCatalogError(true);
+      }).finally(() => {
+        if (sequence === searchSequence.current) setCatalogLoading(false);
+      });
+    }, query ? 220 : 0);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+  return <div className="empty-state catalog-empty">
+    <div className="workspace-intro"><span>Start a request</span><h2>Find current supplier coverage</h2><p>Search by medicine, strength, or dosage form. You can also write any procurement need directly below.</p></div>
+    <section className="catalog-panel" data-tour="catalog" aria-labelledby="catalog-heading">
+      <div className="catalog-head"><div><span>Medicine search</span><h3 id="catalog-heading">Choose a product variant</h3></div><small>Up to 6 results</small></div>
+      <label className="catalog-search"><Search size={18}/><span className="sr-only">Search available medicines</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Try paracetamol, 500 mg, or vial" autoComplete="off"/></label>
+      <div className="catalog-status" role="status">{catalogLoading ? "Searching current quotations…" : query ? `${catalog.length} matching variant${catalog.length === 1 ? "" : "s"}` : "Examples from current quotations"}<span>Keep typing to narrow the six-result list.</span></div>
+      {catalogError ? <p className="catalog-message" role="alert">Medicine availability could not be loaded. You can still describe the request below.</p> : !catalogLoading && catalog.length === 0 ? <p className="catalog-message">No active quotation matches this search. You can still type the medicine into your request.</p> : <div className="catalog-results">{catalog.map(item => <article key={`${item.medicine_name}-${item.strength}-${item.dosage_form}-${item.pack_size}`}>
+        <div className="catalog-result-name"><strong>{item.medicine_name}</strong><span>{item.strength} · {item.dosage_form} · pack {item.pack_size}</span></div>
+        <div className={`catalog-result-evidence ${item.authorized_supplier_count === 0 ? "needs-review" : ""}`}><span>{item.authorized_supplier_count === 0 ? "No verified supplier" : `${item.authorized_supplier_count} verified supplier${item.authorized_supplier_count === 1 ? "" : "s"}`}</span><span>{item.quotation_count} quotation{item.quotation_count === 1 ? "" : "s"}</span><span>{item.minimum_lead_time_days} day fastest</span></div>
+        <button onClick={() => onCatalogItem(item.request_starter)} aria-label={`Use ${item.medicine_name} ${item.strength} in request`}>Use in request<ArrowRight size={14}/></button>
+      </article>)}</div>}
+    </section>
+    <div className="examples compact-examples"><span>Complete examples</span>{examples.map((example, i) => <button key={example} onClick={() => onExample(example)}><span>0{i + 1}</span>{i === 0 ? "Paracetamol" : i === 1 ? "Cold-chain insulin" : "Needs clarification"}<Send size={13} /></button>)}</div>
+  </div>;
 }
 
 function tourSteps(role: AuthUser["role"]): TourStep[] {
@@ -178,7 +207,7 @@ function tourSteps(role: AuthUser["role"]): TourStep[] {
     { title: `Welcome to Procura`, description: "Here is the quickest path from a medicine requirement to a clear, reviewable supplier decision.", screen: "dashboard" },
     { title: "Start from the dashboard", description: "See request volume, recommendations, review handoffs, and your most recent decisions in one place.", screen: "dashboard", target: "dashboard" },
     { title: "Open the procurement workspace", description: "Select Workspace whenever you want to describe a new need or continue a procurement review.", screen: "dashboard", target: "nav-chat" },
-    { title: "Browse current medicine coverage", description: "Search medicine variants with active quotations, compare current coverage, and place verified product facts into your request.", screen: "chat", target: "catalog" },
+    { title: "Search current medicine coverage", description: "Search a focused set of medicine variants with active quotations, then place verified product facts into your request.", screen: "chat", target: "catalog" },
     { title: "Describe the complete requirement", description: "Enter the medicine, strength, form, quantity, pack size, destination, deadline, and currency in ordinary language.", screen: "chat", target: "composer" },
     { title: "Follow the decision evidence", description: "Supplier checks, exclusions, policy details, and the decision record remain visible beside the conversation.", screen: "chat", target: "evidence" }
   ];

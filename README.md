@@ -13,7 +13,7 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 - Unsafe outcomes create persistent human-review cases. Reviewer actions are idempotent, timestamped, and do not create transactions.
 - Supplier and quote records are loaded from the database at runtime; supplier-submitted changes require staff verification before becoming active evidence.
 - AI-first role workflows reduce form work without bypassing control: suppliers turn one offer description into a typed quotation draft, and reviewers receive an evidence-grounded suggested action before recording their own decision.
-- Buyers can search a database-backed medicine catalogue before starting a request. Catalogue cards show current quotation coverage, verified suppliers, capacity, delivery, destination, currency, and indicative price evidence.
+- Buyers search a database-backed medicine index before starting a request. The API filters server-side and returns at most six focused results to the workspace, with current supplier, quotation, and delivery evidence.
 - Shared trace IDs connect local metrics, optional Langfuse observations, and privacy-safe Sentry errors.
 - Twelve readable deterministic evaluations and separate backend/frontend gate tests.
 
@@ -137,7 +137,7 @@ make down    # stop Docker services
 | `POST` | `/api/auth/logout` | Session |
 | `GET` | `/api/auth/me` | Session |
 | `GET` | `/api/dashboard/summary` | Buyer or staff |
-| `GET` | `/api/catalog/medicines` | Buyer or admin |
+| `GET` | `/api/catalog/medicines?q=paracetamol&limit=6` | Buyer or admin |
 | `GET` | `/api/supplier/dashboard` | Linked supplier |
 | `POST` | `/api/supplier/submissions/profile` | Linked supplier |
 | `POST` | `/api/supplier/submissions/quotes` | Linked supplier |
