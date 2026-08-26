@@ -21,8 +21,9 @@ const routeScreens = Object.fromEntries(Object.entries(screenRoutes).map(([scree
 
 function allowedScreen(user: AuthUser, requested?: Screen): Screen {
   if (user.role === "supplier") return "supplier";
-  if (!requested || requested === "supplier") return "dashboard";
-  if (user.role === "buyer" && (requested === "reviews" || requested === "supplierReviews" || requested === "operations")) return "dashboard";
+  if (user.role === "reviewer") return requested === "supplierReviews" ? "supplierReviews" : "reviews";
+  if (user.role === "admin") return !requested || requested === "supplier" ? "operations" : requested;
+  if (!requested || requested === "supplier" || requested === "reviews" || requested === "supplierReviews" || requested === "operations") return "dashboard";
   return requested;
 }
 
@@ -74,7 +75,7 @@ export default function Home() {
     window.addEventListener("popstate", syncRoute);
     return () => window.removeEventListener("popstate", syncRoute);
   }, [navigate, user]);
-  useEffect(() => { if (user && user.role !== "supplier") api.createConversation().then(conversation => setConversationId(conversation.id)).catch(() => setError("The Procura API is offline. Start the backend, then retry.")); }, [user]);
+  useEffect(() => { if (user && ["buyer", "admin"].includes(user.role)) api.createConversation().then(conversation => setConversationId(conversation.id)).catch(() => setError("The Procura API is offline. Start the backend, then retry.")); }, [user]);
   useEffect(() => { endRef.current?.scrollIntoView?.({ behavior: "smooth" }); }, [messages, progress]);
   useEffect(() => {
     if (!user) return;
@@ -112,9 +113,9 @@ export default function Home() {
   if (!user) return <Landing onAuthenticated={account => { setUser(account); navigate(allowedScreen(account), true); }} />;
   return <div className="app-shell">
     <Nav screen={screen} setScreen={navigate} onNew={() => { navigate("chat"); startNew(); }} onGuide={() => setTourStep(0)} user={user} onLogout={() => api.logout().finally(() => { setUser(undefined); setConversationId(undefined); window.history.replaceState({}, "", "/"); })} />
-    {screen === "dashboard" && user.role !== "supplier" && <CustomerDashboard onStart={() => { navigate("chat"); startNew(); }} />}
+    {screen === "dashboard" && ["buyer", "admin"].includes(user.role) && <CustomerDashboard onStart={() => { navigate("chat"); startNew(); }} />}
     {screen === "supplier" && user.role === "supplier" && <SupplierDashboard />}
-    {screen === "chat" && <main className="workspace">
+    {screen === "chat" && ["buyer", "admin"].includes(user.role) && <main className="workspace">
       <header className="mobile-header"><Brand /><button className="icon-button" onClick={() => setDrawer(true)} aria-label="Open decision evidence"><PanelRight size={20} /></button></header>
       <section className="conversation" aria-label="Procurement conversation">
         <div className="conversation-head"><div><p className="eyebrow">Procurement review</p><h1>Describe what you need</h1></div><div className="head-actions"><button className="quiet-button tablet-evidence" onClick={() => setDrawer(true)} aria-label="Open decision evidence"><PanelRight size={16} />Evidence</button><button className="quiet-button desktop-only" onClick={startNew}><Plus size={16} />New request</button></div></div>
@@ -149,8 +150,9 @@ export default function Home() {
 function Brand() { return <div className="brand"><div className="brand-mark">P</div><div><strong>Procura</strong><span>Procurement operations</span></div></div>; }
 function Nav({ screen, setScreen, onNew, onGuide, user, onLogout }: { screen: Screen; setScreen: (s: Screen) => void; onNew: () => void; onGuide: () => void; user: AuthUser; onLogout: () => void }) {
   const items: [Screen, string, typeof MessageSquareText][] = [["dashboard", "Dashboard", LayoutDashboard], ["chat", "Workspace", MessageSquareText], ["reviews", "Request reviews", ClipboardCheck], ["supplierReviews", "Supplier approvals", Building2], ["operations", "Operations", Activity]];
-  const visible = user.role === "supplier" ? [["supplier", "Supplier portal", Building2]] as [Screen, string, typeof MessageSquareText][] : user.role === "buyer" ? items.filter(([id]) => !["reviews", "supplierReviews", "operations"].includes(id)) : items;
-  return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{user.role !== "supplier" && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
+  const visible = user.role === "supplier" ? [["supplier", "Supplier portal", Building2]] as [Screen, string, typeof MessageSquareText][] : user.role === "buyer" ? items.slice(0, 2) : user.role === "reviewer" ? items.slice(2, 4) : items;
+  const canCreateRequest = user.role === "buyer" || user.role === "admin";
+  return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{canCreateRequest && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role === "admin" ? "operations admin" : user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
 }
 function EmptyState({ onExample }: { onExample: (s: string) => void }) { return <div className="empty-state"><div className="empty-icon"><FileSearch size={25} /></div><h2>Start with a procurement need</h2><p>Procura structures the requirement, compares supplier quotations, and sends exceptions to the right reviewer.</p><div className="examples"><span>Try an example</span>{examples.map((example, i) => <button key={example} onClick={() => onExample(example)}><span>0{i + 1}</span>{i === 0 ? "Paracetamol comparison" : i === 1 ? "Cold-chain insulin" : "Ceftriaxone clarification"}<Send size={14} /></button>)}</div></div>; }
 
@@ -161,6 +163,11 @@ function tourSteps(role: AuthUser["role"]): TourStep[] {
     { title: "Keep evidence current", description: "Review the authorization and market evidence used when Procura evaluates your quotations.", screen: "supplier", target: "supplier-compliance" },
     { title: "Review submitted quotations", description: "Confirm the medicine, pack format, delivery lead time, and price currently available to buyers.", screen: "supplier", target: "supplier-quotes" }
   ];
+  if (role === "reviewer") return [
+    { title: "Welcome to the review workspace", description: "Resolve procurement exceptions and verify supplier evidence without operational administration access.", screen: "reviews" },
+    { title: "Resolve request exceptions", description: "Inspect the request, tool evidence, escalation reasons, and recommendation before recording a decision.", screen: "reviews", target: "reviews" },
+    { title: "Verify supplier evidence", description: "Approve or reject profile and quotation changes before they become available to buyer comparisons.", screen: "supplierReviews", target: "supplier-reviews" }
+  ];
   const steps: TourStep[] = [
     { title: `Welcome to Procura`, description: "Here is the quickest path from a medicine requirement to a clear, reviewable supplier decision.", screen: "dashboard" },
     { title: "Start from the dashboard", description: "See request volume, recommendations, review handoffs, and your most recent decisions in one place.", screen: "dashboard", target: "dashboard" },
@@ -168,7 +175,7 @@ function tourSteps(role: AuthUser["role"]): TourStep[] {
     { title: "Describe the complete requirement", description: "Enter the medicine, strength, form, quantity, pack size, destination, deadline, and currency in ordinary language.", screen: "chat", target: "composer" },
     { title: "Follow the decision evidence", description: "Supplier checks, exclusions, policy details, and the decision record remain visible beside the conversation.", screen: "chat", target: "evidence" }
   ];
-  if (role === "reviewer" || role === "admin") steps.push(
+  if (role === "admin") steps.push(
     { title: "Resolve exceptions", description: "Staff review collects every blocked or uncertain case with the evidence needed to approve, reject, or request clarification.", screen: "reviews", target: "reviews" },
     { title: "Monitor the workflow", description: "Operations shows actual request outcomes, review volume, latency, evaluations, and recent workflow activity.", screen: "operations", target: "operations" }
   );
@@ -220,7 +227,7 @@ function SupplierSubmissionReviews() {
   const load = useCallback(() => api.supplierSubmissions().then(results => { setItems(results); setSelected(current => results.find(item => item.id === current?.id) || results[0]); setFailed(false); }).catch(() => setFailed(true)), []);
   useEffect(() => { load(); }, [load]);
   async function decide(action: "approve" | "reject") { if (!selected) return; setBusy(true); try { const updated = await api.decideSupplierSubmission(selected.id, action, action === "approve" ? "Supplier evidence verified" : "Supplier evidence rejected"); setSelected(updated); await load(); } finally { setBusy(false); } }
-  return <main className="page-shell"><header className="page-head"><div><p className="eyebrow">Supplier governance</p><h1>Supplier approvals</h1><p>Verify profile, authorization, capability, and quotation changes before they enter procurement comparisons.</p></div><StatusBadge status="review" /></header>
+  return <main className="page-shell" data-tour="supplier-reviews"><header className="page-head"><div><p className="eyebrow">Supplier governance</p><h1>Supplier approvals</h1><p>Verify profile, authorization, capability, and quotation changes before they enter procurement comparisons.</p></div><StatusBadge status="review" /></header>
     {failed ? <div className="error-state" role="alert">Supplier submissions are unavailable.</div> : items.length === 0 ? <div className="blank-panel"><Building2 size={28}/><h2>No supplier submissions</h2><p>Supplier profile and quotation changes will appear here.</p></div> : <div className="review-layout"><aside className="case-list" aria-label="Supplier submissions">{items.map(item => <button key={item.id} className={selected?.id === item.id ? "selected" : ""} onClick={() => setSelected(item)}><span className={`case-status ${item.status}`}/><div><strong>{item.kind} change</strong><small>{item.status}</small></div><time>{new Date(item.created_at).toLocaleDateString()}</time></button>)}</aside>{selected && <section className="case-detail"><div className="case-title"><div><span>Submission {selected.id.slice(0, 8)}</span><h2>{selected.kind === "profile" ? "Supplier profile update" : "Quotation update"}</h2></div><span className={`state-label ${selected.status}`}>{selected.status}</span></div><div className="submission-evidence"><h3>Submitted evidence</h3><dl>{Object.entries(selected.payload).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{Array.isArray(value) ? value.join(", ") : String(value ?? "Not supplied")}</dd></div>)}</dl></div>{selected.status === "pending" ? <div className="review-actions"><button className="primary-action" onClick={() => decide("approve")} disabled={busy}><Check size={16}/>Approve and publish</button><button className="danger-action" onClick={() => decide("reject")} disabled={busy}>Reject change</button></div> : <div className="audit-record"><Check size={18}/><div><strong>Decision recorded</strong><p>{selected.status} · {selected.reviewer_note}</p></div></div>}<p className="fine-print">Only approved evidence becomes available to buyer comparisons. This action does not place an order.</p></section>}</div>}
   </main>;
 }

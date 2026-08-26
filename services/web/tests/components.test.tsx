@@ -58,18 +58,40 @@ describe("API validation messages", () => {
 });
 
 describe("guided product journey", () => {
-  it("welcomes a first-time reviewer and keeps the guide replayable", async () => {
+  it("guides a reviewer through review-only navigation", async () => {
     vi.spyOn(api, "me").mockResolvedValueOnce({ id: "reviewer-1", email: "reviewer@procura.example", display_name: "Operations Reviewer", organization: "Procura", role: "reviewer", created_at: new Date().toISOString() });
-    vi.spyOn(api, "createConversation").mockResolvedValue({ id: "conversation-1", messages: [] });
-    vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count: 0, execution_count: 0, recommendation_count: 0, review_count: 0, recent_decisions: [] });
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
     render(<Home />);
-    expect(await screen.findByRole("heading", { name: "Welcome to Procura" }, { timeout: 1500 })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "About" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Welcome to the review workspace" }, { timeout: 1500 })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Show me around" }));
-    expect(await screen.findByRole("heading", { name: "Start from the dashboard" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Resolve request exceptions" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Close product guide" }));
     expect(screen.getByRole("button", { name: "Product guide" })).toBeVisible();
     expect(window.localStorage.getItem("procura-guide:reviewer-1")).toBe("seen");
+  });
+
+  it("keeps reviewers on review routes and gives admins every internal route", async () => {
+    window.localStorage.setItem("procura-guide:reviewer-route", "seen");
+    window.history.replaceState({}, "", "/operations");
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id: "reviewer-route", email: "reviewer@procura.example", display_name: "Reviewer", organization: "Procura", role: "reviewer", created_at: new Date().toISOString() });
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    const reviewerView = render(<Home />);
+    expect(await screen.findByRole("heading", { name: "Staff review" })).toBeVisible();
+    expect(window.location.pathname).toBe("/reviews");
+    expect(screen.getByRole("button", { name: "Supplier approvals" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Operations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New request" })).not.toBeInTheDocument();
+    reviewerView.unmount();
+
+    window.localStorage.setItem("procura-guide:admin-route", "seen");
+    window.history.replaceState({}, "", "/operations");
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id: "admin-route", email: "operations@procura.example", display_name: "Operations Administrator", organization: "Procura", role: "admin", created_at: new Date().toISOString() });
+    vi.spyOn(api, "createConversation").mockResolvedValue({ id: "admin-conversation", messages: [] });
+    vi.spyOn(api, "operations").mockResolvedValue({ request_count:0, autonomous_recommendation_count:0, human_review_count:0, error_count:0, evaluation_pass_rate:1, langfuse_status:"Langfuse not configured", sentry_status:"Sentry not configured", recent_traces:[] });
+    render(<Home />);
+    expect(await screen.findByRole("heading", { name: "Operations" })).toBeVisible();
+    for (const label of ["Dashboard", "Workspace", "Request reviews", "Supplier approvals", "Operations"]) expect(screen.getByRole("button", { name: label })).toBeVisible();
+    expect(screen.getByText("operations admin")).toBeVisible();
   });
 
   it("announces when a new request is ready", async () => {

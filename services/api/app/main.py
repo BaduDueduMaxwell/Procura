@@ -43,6 +43,7 @@ from app.models.database import (
 from app.observability.adapters import Observability
 from app.services.agent_service import AgentService
 from app.services.auth import (
+    admin_user,
     auth_limiter,
     clear_session,
     create_session,
@@ -89,7 +90,7 @@ async def security_boundary(request: Request, call_next):
 def require_owner(resource_type: str, resource_id: str, user: AuthUser) -> None:
     with SessionLocal() as db:
         owner = db.scalar(select(ResourceOwnerRow).where(ResourceOwnerRow.resource_type == resource_type, ResourceOwnerRow.resource_id == resource_id, ResourceOwnerRow.user_id == user.id))
-        if not owner and user.role not in {"reviewer", "admin"}:
+        if not owner and user.role != "admin":
             raise HTTPException(404, "Resource not found")
 
 
@@ -141,7 +142,7 @@ def me(user: AuthUser = Depends(current_user)): return user
 
 @app.get("/api/dashboard/summary", response_model=CustomerDashboardSummary)
 def customer_dashboard(user: AuthUser = Depends(current_user)):
-    if user.role == "supplier":
+    if user.role not in {"buyer", "admin"}:
         raise HTTPException(403, "Customer workspace required")
     with SessionLocal() as db:
         conversation_ids = list(db.scalars(select(ResourceOwnerRow.resource_id).where(ResourceOwnerRow.resource_type == "conversation", ResourceOwnerRow.user_id == user.id)).all())
@@ -266,7 +267,7 @@ def decide_supplier_submission(submission_id: str, body: SupplierSubmissionDecis
 
 @app.post("/api/conversations", response_model=Conversation, status_code=201)
 def create_conversation(user: AuthUser = Depends(current_user)):
-    if user.role == "supplier":
+    if user.role not in {"buyer", "admin"}:
         raise HTTPException(403, "Customer workspace required")
     conversation = service.create_conversation()
     with SessionLocal() as db:
@@ -284,6 +285,8 @@ def get_conversation(conversation_id: str, user: AuthUser = Depends(current_user
 
 @app.post("/api/conversations/{conversation_id}/messages", response_model=AgentResponse)
 async def post_message(conversation_id: str, body: MessageRequest, user: AuthUser = Depends(current_user)):
+    if user.role not in {"buyer", "admin"}:
+        raise HTTPException(403, "Customer workspace required")
     require_owner("conversation", conversation_id, user)
     try: return await service.execute(conversation_id, body.content, body.idempotency_key, body.simulate_tool_timeout)
     except KeyError as exc: raise HTTPException(404, "Conversation not found") from exc
@@ -336,7 +339,7 @@ def trace(trace_id: str, user: AuthUser = Depends(current_user)):
 
 
 @app.get("/api/operations/summary", response_model=OperationsSummary)
-def operations(_: AuthUser = Depends(staff_user)):
+def operations(_: AuthUser = Depends(admin_user)):
     with SessionLocal() as db:
         rows = db.scalars(select(ExecutionRow).order_by(ExecutionRow.created_at.desc())).all()
         traces = [TraceSummary.model_validate_json(r.trace_data) for r in rows[:8]]
@@ -349,7 +352,7 @@ def operations(_: AuthUser = Depends(staff_user)):
 
 
 @app.post("/api/dev/simulate-tool-timeout")
-async def simulate_timeout(user: AuthUser = Depends(staff_user)):
+async def simulate_timeout(user: AuthUser = Depends(admin_user)):
     if settings.app_env == "production": raise HTTPException(404, "Not found")
     conversation = service.create_conversation()
     with SessionLocal() as db:

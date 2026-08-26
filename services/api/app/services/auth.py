@@ -82,28 +82,60 @@ def staff_user(user: AuthUser = Depends(current_user)) -> AuthUser:
     return user
 
 
+def admin_user(user: AuthUser = Depends(current_user)) -> AuthUser:
+    if user.role != "admin":
+        raise HTTPException(403, "Administrator access required")
+    return user
+
+
+def upsert_bootstrap_user(db, *, email: str | None, password: str | None, display_name: str, role: str) -> UserRow | None:
+    if not email or not password:
+        return None
+    normalized_email = normalize_email(email)
+    user = db.scalar(select(UserRow).where(UserRow.email == normalized_email))
+    if not user:
+        user = UserRow(
+            id=str(uuid4()),
+            email=normalized_email,
+            display_name=display_name,
+            organization="Procura",
+            password_hash=password_hash.hash(password),
+            role=role,
+        )
+        db.add(user)
+    else:
+        user.display_name = display_name
+        user.organization = "Procura"
+        user.password_hash = password_hash.hash(password)
+        user.role = role
+        user.is_active = True
+    return user
+
+
 def seed_local_accounts(settings: Settings) -> None:
     reviewer_email = settings.bootstrap_reviewer_email if settings.app_env == "production" else "reviewer@procura.example"
     reviewer_password = settings.bootstrap_reviewer_password if settings.app_env == "production" else "Procura-Reviewer-2026!"
+    admin_email = settings.bootstrap_admin_email if settings.app_env == "production" else "operations@procura.example"
+    admin_password = settings.bootstrap_admin_password if settings.app_env == "production" else "Procura-Admin-2026!"
     supplier_email = settings.bootstrap_supplier_email if settings.app_env == "production" else "supplier@procura.example"
     supplier_password = settings.bootstrap_supplier_password if settings.app_env == "production" else "Procura-Supplier-2026!"
-    if not all((reviewer_email, reviewer_password, supplier_email, supplier_password)):
-        return
     with SessionLocal() as db:
-        reviewer = db.scalar(select(UserRow).where(UserRow.email == reviewer_email))
-        if not reviewer:
-            reviewer = UserRow(id=str(uuid4()), email=reviewer_email, display_name="Operations Reviewer", organization="Procura", password_hash=password_hash.hash(reviewer_password), role="reviewer")
-            db.add(reviewer)
-        else:
-            reviewer.display_name = "Operations Reviewer"
-            reviewer.organization = "Procura"
-            reviewer.password_hash = password_hash.hash(reviewer_password)
-        supplier_user = db.scalar(select(UserRow).where(UserRow.email == supplier_email))
+        upsert_bootstrap_user(db, email=reviewer_email, password=reviewer_password, display_name="Procurement Reviewer", role="reviewer")
+        upsert_bootstrap_user(db, email=admin_email, password=admin_password, display_name="Operations Administrator", role="admin")
+        normalized_supplier_email = normalize_email(supplier_email) if supplier_email else None
+        supplier_user = db.scalar(select(UserRow).where(UserRow.email == normalized_supplier_email)) if normalized_supplier_email else None
+        if not supplier_email or not supplier_password:
+            db.commit()
+            return
         if not supplier_user:
-            supplier_user = UserRow(id=str(uuid4()), email=supplier_email, display_name="Northstar Account", organization="Northstar Health Supply", password_hash=password_hash.hash(supplier_password), role="supplier")
+            supplier_user = UserRow(id=str(uuid4()), email=normalized_supplier_email, display_name="Northstar Account", organization="Northstar Health Supply", password_hash=password_hash.hash(supplier_password), role="supplier")
             db.add(supplier_user); db.flush()
         else:
             supplier_user.display_name = "Northstar Account"
+            supplier_user.organization = "Northstar Health Supply"
+            supplier_user.password_hash = password_hash.hash(supplier_password)
+            supplier_user.role = "supplier"
+            supplier_user.is_active = True
         existing_link = db.scalar(select(ResourceOwnerRow).where(ResourceOwnerRow.resource_type == "supplier_profile", ResourceOwnerRow.resource_id == "northstar", ResourceOwnerRow.user_id == supplier_user.id))
         if not existing_link:
             db.add(ResourceOwnerRow(id=str(uuid4()), resource_type="supplier_profile", resource_id="northstar", user_id=supplier_user.id))

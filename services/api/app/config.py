@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     session_days: int = 7
     bootstrap_reviewer_email: str | None = None
     bootstrap_reviewer_password: str | None = None
+    bootstrap_admin_email: str | None = None
+    bootstrap_admin_password: str | None = None
     bootstrap_supplier_email: str | None = None
     bootstrap_supplier_password: str | None = None
     policy_path: Path = find_policy_path()

@@ -1,3 +1,9 @@
+from uuid import UUID
+
+from app.models.database import ResourceOwnerRow, SessionLocal
+from sqlalchemy import select
+
+
 def authenticate(client):
     if client.get("/api/auth/me").status_code == 200: return
     response = client.post("/api/auth/signup", json={"email":"buyer@example.com","display_name":"Procurement Buyer","organization":"Test Procurement","password":"A-secure-password-2026!"})
@@ -7,6 +13,12 @@ def authenticate(client):
 def login_reviewer(client):
     client.post("/api/auth/logout")
     response = client.post("/api/auth/login", json={"email":"reviewer@procura.example","password":"Procura-Reviewer-2026!"})
+    assert response.status_code == 200
+
+
+def login_admin(client):
+    client.post("/api/auth/logout")
+    response = client.post("/api/auth/login", json={"email":"operations@procura.example","password":"Procura-Admin-2026!"})
     assert response.status_code == 200
 
 
@@ -59,13 +71,13 @@ def test_idempotent_reviewer_action(client):
 
 
 def test_timeout_fails_safe_with_trace(client):
-    login_reviewer(client)
+    login_admin(client)
     body=client.post("/api/dev/simulate-tool-timeout").json(); assert body["decision"]["status"]=="failed_safe"
     assert client.get(f"/api/traces/{body['decision']['trace_id']}").status_code==200
 
 
 def test_operations_are_measured(client):
-    login_reviewer(client)
+    login_admin(client)
     assert client.get("/api/operations/summary").json()["request_count"]==0
     test_health_and_happy_path(client)
     data=client.get("/api/operations/summary").json(); assert data["request_count"]==1 and data["p50_latency_ms"] is None
@@ -78,6 +90,31 @@ def test_signup_session_logout_and_role_boundary(client):
     assert client.get("/api/reviews").status_code == 403
     assert client.post("/api/auth/logout").status_code == 204
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_seeded_reviewer_and_admin_have_distinct_permissions(client):
+    conversation_id = new_conversation(client)
+    login_reviewer(client)
+    assert client.get("/api/auth/me").json()["role"] == "reviewer"
+    assert client.get("/api/reviews").status_code == 200
+    assert client.get("/api/supplier-submissions").status_code == 200
+    assert client.get("/api/operations/summary").status_code == 403
+    assert client.post("/api/conversations").status_code == 403
+    assert client.get(f"/api/conversations/{conversation_id}").status_code == 404
+
+    login_admin(client)
+    assert client.get("/api/auth/me").json()["role"] == "admin"
+    assert client.get("/api/reviews").status_code == 200
+    assert client.get("/api/supplier-submissions").status_code == 200
+    assert client.get("/api/operations/summary").status_code == 200
+    assert client.post("/api/conversations").status_code == 201
+    assert client.get(f"/api/conversations/{conversation_id}").status_code == 200
+    assert client.get("/api/supplier/dashboard").status_code == 403
+
+
+def test_public_signup_cannot_assign_staff_roles(client):
+    payload = {"email":"self-admin@example.com","display_name":"Self Admin","organization":"Test","password":"A-secure-password-2026!","account_type":"admin"}
+    assert client.post("/api/auth/signup", json=payload).status_code == 422
 
 
 def test_auth_rejects_weak_password_duplicate_and_bad_login(client):
@@ -120,6 +157,9 @@ def test_customer_and_supplier_dashboards_are_role_isolated(client):
     assert login.status_code == 200 and login.json()["role"] == "supplier"
     supplier = client.get("/api/supplier/dashboard")
     assert supplier.status_code == 200 and supplier.json()["supplier"]["id"] == "northstar"
+    with SessionLocal() as db:
+        link = db.scalar(select(ResourceOwnerRow).where(ResourceOwnerRow.resource_type == "supplier_profile", ResourceOwnerRow.resource_id == "northstar"))
+        assert link is not None and str(UUID(link.id)) == link.id
     assert client.get("/api/dashboard/summary").status_code == 403
     assert client.post("/api/conversations").status_code == 403
 

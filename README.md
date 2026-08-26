@@ -19,7 +19,7 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 
 ```mermaid
 flowchart LR
-  U[Buyer, supplier, or reviewer] --> W[Next.js web app]
+  U[Buyer, supplier, reviewer, or admin] --> W[Next.js web app]
   W -->|HttpOnly session + typed JSON| A[FastAPI API]
   A --> O[Explicit agent orchestrator]
   O --> P[Local or hosted LLM provider]
@@ -44,14 +44,21 @@ docker compose up --build
 
 Open [http://localhost:3001](http://localhost:3001). The API health endpoint is [http://localhost:8000/health](http://localhost:8000/health).
 
-The app starts with `LLM_PROVIDER=local`; no external key is required. In local development only, a reviewer account is seeded for the staff and operations screens:
+The app starts with `LLM_PROVIDER=local`; no external key is required. In local development, a reviewer account is seeded for procurement and supplier approvals:
 
 ```text
 Email: reviewer@procura.example
 Password: Procura-Reviewer-2026!
 ```
 
-This local reviewer account is never created when `APP_ENV=production`. Public signup supports buyer and supplier accounts; reviewer and admin privileges cannot be self-assigned.
+The local operations administrator is separate from the reviewer:
+
+```text
+Email: operations@procura.example
+Password: Procura-Admin-2026!
+```
+
+Public signup supports buyer and supplier accounts only. Reviewer and administrator privileges cannot be self-assigned. Production staff accounts are provisioned from secret environment variables rather than source-controlled credentials.
 
 An invite-linked supplier portal account is also seeded in local development:
 
@@ -63,6 +70,13 @@ Password: Procura-Supplier-2026!
 Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. Changes remain pending until a reviewer approves them. Suppliers cannot access buyer conversations or staff operations.
 
 Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, and `/operations`. Role checks are enforced by the API as well as the interface.
+
+| Role | Default route | Access |
+|---|---|---|
+| Buyer | `/dashboard` | Dashboard and procurement workspace |
+| Supplier | `/supplier` | Its linked supplier profile, quotations, and submission history |
+| Reviewer | `/reviews` | Procurement reviews and supplier approvals |
+| Operations admin | `/operations` | Every internal buyer, review, supplier-approval, and operations route; no supplier impersonation |
 
 ### Run without Docker
 
@@ -118,13 +132,13 @@ make down    # stop Docker services
 | `POST` | `/api/supplier/submissions/quotes` | Linked supplier |
 | `GET` | `/api/supplier-submissions` | Reviewer or admin |
 | `POST` | `/api/supplier-submissions/{id}/decision` | Reviewer or admin |
-| `POST` | `/api/conversations` | Buyer or staff |
-| `GET` | `/api/conversations/{id}` | Owner or staff |
-| `POST` | `/api/conversations/{id}/messages` | Owner or staff |
+| `POST` | `/api/conversations` | Buyer or admin |
+| `GET` | `/api/conversations/{id}` | Owner or admin |
+| `POST` | `/api/conversations/{id}/messages` | Owner or admin |
 | `GET` | `/api/reviews` | Reviewer or admin |
 | `POST` | `/api/reviews/{id}/decision` | Reviewer or admin |
-| `GET` | `/api/operations/summary` | Reviewer or admin |
-| `GET` | `/api/traces/{id}` | Owner or staff |
+| `GET` | `/api/operations/summary` | Admin |
+| `GET` | `/api/traces/{id}` | Owner or admin |
 | `GET` | `/health` | Public |
 
 FastAPI also exposes interactive local API documentation at [http://localhost:8000/docs](http://localhost:8000/docs).
@@ -141,6 +155,9 @@ Copy `.env.example` to `.env`. `.env` and SQLite databases are ignored by Git.
 | `LLM_API_KEY` | empty | Hosted provider credential |
 | `DATABASE_URL` | SQLite | Application database |
 | `APP_ENV` | `development` | Disables development controls and local accounts in production |
+| `BOOTSTRAP_REVIEWER_*` | empty | Provisioned reviewer credentials |
+| `BOOTSTRAP_ADMIN_*` | empty | Provisioned operations-administrator credentials |
+| `BOOTSTRAP_SUPPLIER_*` | empty | Optional linked supplier credentials |
 | `LANGFUSE_*` | empty | Optional sanitized LLM/tool tracing |
 | `SENTRY_DSN` | empty | Optional backend monitoring |
 | `NEXT_PUBLIC_SENTRY_DSN` | empty | Optional frontend monitoring |
@@ -152,7 +169,7 @@ No credentials are committed. Missing Langfuse or Sentry credentials select no-o
 - Passwords are Argon2-hashed and never returned or logged.
 - Session secrets are random, stored only as SHA-256 hashes, and sent in `HttpOnly`, `SameSite=Lax` cookies. Production cookies are `Secure`.
 - Mutation requests validate browser origin. CORS permits only the configured web origin and credentials.
-- Buyers are isolated from other conversation IDs and staff-only review/operations endpoints.
+- Buyers are isolated from other conversation IDs and staff-only endpoints. Reviewers can act only on review evidence, while administrators can access internal operations without impersonating supplier accounts.
 - Pydantic bounds all user-controlled fields; SQLAlchemy parameterizes database access.
 - React renders messages as text. The project contains no `dangerouslySetInnerHTML` path for user content.
 - Frontend CSP, frame denial, MIME sniffing protection, referrer policy, and browser capability restrictions are enabled.
