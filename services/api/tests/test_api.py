@@ -28,6 +28,12 @@ def login_seeded_buyer(client):
     assert response.status_code == 200
 
 
+def login_supplier(client):
+    client.post("/api/auth/logout")
+    response = client.post("/api/auth/login", json={"email":"supplier@procura.example","password":"Procura-Supplier-2026!"})
+    assert response.status_code == 200
+
+
 def new_conversation(client):
     authenticate(client)
     return client.post("/api/conversations").json()["id"]
@@ -178,6 +184,46 @@ def test_customer_and_supplier_dashboards_are_role_isolated(client):
         assert link is not None and str(UUID(link.id)) == link.id
     assert client.get("/api/dashboard/summary").status_code == 403
     assert client.post("/api/conversations").status_code == 403
+
+
+def test_supplier_quote_assistant_prepares_draft_without_submitting(client):
+    login_supplier(client)
+    before = client.get("/api/supplier/dashboard").json()["submissions"]
+    response = client.post("/api/supplier/quote-drafts", json={"content":"Offer 4,000 packs of paracetamol 500 mg tablets, pack size 20, at USD 0.44 per pack, within 13 days."})
+    assert response.status_code == 200
+    draft = response.json()
+    assert draft["ready_to_submit"] is True
+    assert draft["medicine_name"] == "paracetamol"
+    assert draft["available_quantity_packs"] == 4000
+    assert draft["unit_price"] == 0.44
+    assert draft["no_submission_created"] is True
+    assert client.get("/api/supplier/dashboard").json()["submissions"] == before
+
+
+def test_supplier_quote_assistant_lists_missing_fields_and_enforces_role(client):
+    login_supplier(client)
+    draft = client.post("/api/supplier/quote-drafts", json={"content":"Paracetamol 500 mg tablets"}).json()
+    assert draft["ready_to_submit"] is False
+    assert "unit_price" in draft["missing_fields"]
+    login_seeded_buyer(client)
+    assert client.post("/api/supplier/quote-drafts", json={"content":"Paracetamol 500 mg tablets"}).status_code == 403
+
+
+def test_review_brief_is_grounded_and_does_not_decide_case(client):
+    cid = new_conversation(client)
+    client.post(f"/api/conversations/{cid}/messages", json={"content":"2,000 packs of amoxicillin 500 mg capsules, pack size 50, to Ghana within 21 days in USD", "idempotency_key":"brief-001"})
+    login_reviewer(client)
+    case = client.get("/api/reviews").json()[0]
+    brief = client.get(f"/api/reviews/{case['id']}/brief")
+    assert brief.status_code == 200
+    body = brief.json()
+    assert body["review_id"] == case["id"]
+    assert body["human_decision_required"] is True
+    assert body["suggested_action"] == "request_clarification"
+    assert any("Escalation:" in point for point in body["evidence_points"])
+    assert client.get(f"/api/reviews/{case['id']}").json()["status"] == "open"
+    login_seeded_buyer(client)
+    assert client.get(f"/api/reviews/{case['id']}/brief").status_code == 403
 
 
 def test_supplier_onboarding_submission_and_staff_approval(client):

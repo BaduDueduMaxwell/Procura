@@ -20,10 +20,13 @@ from app.domain.models import (
     LoginRequest,
     MessageRequest,
     OperationsSummary,
+    ReviewBrief,
     ReviewDecisionRequest,
     SignupRequest,
     SupplierDashboardSummary,
     SupplierProfileSubmissionRequest,
+    SupplierQuoteDraft,
+    SupplierQuoteDraftRequest,
     SupplierQuoteSubmissionRequest,
     SupplierSubmission,
     SupplierSubmissionDecisionRequest,
@@ -54,6 +57,7 @@ from app.services.auth import (
     seed_local_accounts,
     staff_user,
 )
+from app.services.role_assistants import create_review_brief, draft_supplier_quote
 from app.services.seed import seed_supplier_database, synthetic_suppliers
 
 settings = get_settings()
@@ -206,6 +210,13 @@ def submit_supplier_quote(body: SupplierQuoteSubmissionRequest, user: AuthUser =
     return create_supplier_submission(user, "quote", payload, body.idempotency_key)
 
 
+@app.post("/api/supplier/quote-drafts", response_model=SupplierQuoteDraft)
+def prepare_supplier_quote(body: SupplierQuoteDraftRequest, user: AuthUser = Depends(current_user)):
+    if user.role != "supplier":
+        raise HTTPException(403, "Supplier workspace required")
+    return draft_supplier_quote(body.content, service.provider.name)
+
+
 @app.get("/api/supplier-submissions", response_model=list[SupplierSubmission])
 def list_supplier_submissions(_: AuthUser = Depends(staff_user)):
     with SessionLocal() as db:
@@ -312,6 +323,15 @@ def review(review_id: str, _: AuthUser = Depends(staff_user)):
         row = db.get(ReviewRow, review_id)
         if not row: raise HTTPException(404, "Review not found")
         return HumanReviewCase.model_validate_json(row.data)
+
+
+@app.get("/api/reviews/{review_id}/brief", response_model=ReviewBrief)
+def review_brief(review_id: str, _: AuthUser = Depends(staff_user)):
+    with SessionLocal() as db:
+        row = db.get(ReviewRow, review_id)
+        if not row:
+            raise HTTPException(404, "Review not found")
+        return create_review_brief(HumanReviewCase.model_validate_json(row.data), service.provider.name)
 
 
 @app.post("/api/reviews/{review_id}/decision", response_model=HumanReviewCase)

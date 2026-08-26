@@ -123,7 +123,7 @@ describe("guided product journey", () => {
     vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"aster",display_name:"Aster",authorization:{status:"missing"},capability:{destinations:[],cold_chain:false},reliability_score:0,quotes:[]}, quote_count:0,eligible_destination_count:0,compliance_state:"missing",submissions:[] });
     vi.spyOn(api, "submitSupplierQuote").mockResolvedValue({ id:"submission-1",supplier_id:"aster",kind:"quote",payload:{},status:"pending",created_at:new Date().toISOString() });
     render(<Home />);
-    await screen.findByRole("heading", { name: "Submit a quotation" });
+    await screen.findByRole("heading", { name: "Review and submit quotation" });
     fireEvent.change(screen.getByLabelText("Medicine"), { target:{value:"paracetamol"} });
     fireEvent.change(screen.getByLabelText("Strength"), { target:{value:"500 mg"} });
     fireEvent.change(screen.getByLabelText("Dosage form"), { target:{value:"tablet"} });
@@ -133,5 +133,36 @@ describe("guided product journey", () => {
     fireEvent.change(screen.getByLabelText("Lead time (days)"), { target:{value:"13"} });
     fireEvent.click(screen.getByRole("button", { name:"Submit quotation for verification" }));
     expect(await screen.findByText("Quotation submitted for staff verification.")).toBeVisible();
+  });
+
+  it("prepares a supplier quote form without submitting it", async () => {
+    window.localStorage.setItem("procura-guide:supplier-draft", "seen");
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"supplier-draft", email:"supplier@procura.example", display_name:"Supplier", organization:"Aster", role:"supplier", created_at:new Date().toISOString() });
+    vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"aster",display_name:"Aster",authorization:{status:"authorized"},capability:{destinations:["Ghana"],cold_chain:false},reliability_score:.9,quotes:[]},quote_count:0,eligible_destination_count:1,compliance_state:"authorized",submissions:[] });
+    const draft = vi.spyOn(api, "draftSupplierQuote").mockResolvedValue({ medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",pack_size:20,available_quantity_packs:4000,unit_price:.44,currency:"USD",lead_time_days:13,missing_fields:[],ready_to_submit:true,summary:"Quote draft is complete and ready for your confirmation.",provider:"local",prompt_version:"procura-supplier-quote-v1",trace_id:"trace-draft",no_submission_created:true });
+    const submit = vi.spyOn(api, "submitSupplierQuote");
+    render(<Home />);
+    fireEvent.change(await screen.findByLabelText("Quotation details"), { target:{value:"Offer 4,000 packs of paracetamol 500 mg tablets, pack size 20, at USD 0.44 per pack, within 13 days."} });
+    fireEvent.click(screen.getByRole("button", { name:"Prepare quote draft" }));
+    expect(await screen.findByText("Draft ready for your review")).toBeVisible();
+    expect(screen.getByLabelText("Medicine")).toHaveValue("paracetamol");
+    expect(screen.getByLabelText("Available packs")).toHaveValue(4000);
+    expect(screen.getByText("No quotation has been submitted.")).toBeVisible();
+    expect(draft).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("shows a reviewer brief without recording a decision", async () => {
+    window.localStorage.setItem("procura-guide:review-brief", "seen");
+    const reviewCase = { id:"review-1",trace_id:"trace-1",status:"open" as const,reasons:["pack_size_mismatch"],request:{id:"request-1",synthetic:true as const,medicine:{medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",quantity:1500,pack_size:20,unit:"packs",cold_chain_required:false},destination:"Ghana",max_lead_time_days:18,currency:"USD"},quotes:[],policy_version:"procura-policy-v1",created_at:new Date().toISOString() };
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"review-brief",email:"reviewer@procura.example",display_name:"Reviewer",organization:"Procura",role:"reviewer",created_at:new Date().toISOString() });
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewCase]);
+    vi.spyOn(api, "reviewBrief").mockResolvedValue({ review_id:"review-1",trace_id:"trace-1",summary:"Review paracetamol against 0 supplier quotations.",evidence_points:["Escalation: pack_size_mismatch"],suggested_action:"request_clarification",suggestion_reason:"Resolve missing evidence.",policy_version:"procura-policy-v1",provider:"local",prompt_version:"procura-review-brief-v1",human_decision_required:true });
+    const decide = vi.spyOn(api, "decideReview");
+    render(<Home />);
+    expect(await screen.findByText("Review brief")).toBeVisible();
+    expect(screen.getByText("Suggested: request clarification")).toBeVisible();
+    expect(screen.getByText(/reviewer must make the final decision/i)).toBeVisible();
+    expect(decide).not.toHaveBeenCalled();
   });
 });

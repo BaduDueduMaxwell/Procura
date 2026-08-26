@@ -12,6 +12,7 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 - Deterministic Python tools own supplier search, authorization, destination, cold-chain, units, deadlines, currency, price anomalies, and ranking.
 - Unsafe outcomes create persistent human-review cases. Reviewer actions are idempotent, timestamped, and do not create transactions.
 - Supplier and quote records are loaded from the database at runtime; supplier-submitted changes require staff verification before becoming active evidence.
+- AI-first role workflows reduce form work without bypassing control: suppliers turn one offer description into a typed quotation draft, and reviewers receive an evidence-grounded suggested action before recording their own decision.
 - Shared trace IDs connect local metrics, optional Langfuse observations, and privacy-safe Sentry errors.
 - Twelve readable deterministic evaluations and separate backend/frontend gate tests.
 
@@ -81,8 +82,8 @@ Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/revi
 | Role | Default route | Access |
 |---|---|---|
 | Buyer | `/dashboard` | Dashboard and procurement workspace |
-| Supplier | `/supplier` | Its linked supplier profile, quotations, and submission history |
-| Reviewer | `/reviews` | Procurement reviews and supplier approvals |
+| Supplier | `/supplier` | Its linked supplier profile, quotation drafting, quotations, and submission history |
+| Reviewer | `/reviews` | Evidence briefs, procurement decisions, and supplier approvals |
 | Operations admin | `/operations` | Every internal buyer, review, supplier-approval, and operations route; no supplier impersonation |
 
 ### Run without Docker
@@ -122,8 +123,9 @@ make down    # stop Docker services
 3. Inspect the structured request, eligibility evidence, recommendation, trace ID, and policy version.
 4. Submit `300 packs of insulin 100 units/ml vials, pack size 10, cold chain, delivered to Ghana within 21 days in USD.` to inspect cold-chain exclusions.
 5. Sign in as the reviewer, open Staff review, and record an approval, rejection, or clarification request.
-6. Open Operations to see real local request counts, decision totals, measured latency, eval pass rate, and integration status.
-7. Use the development-only timeout control to verify safe failure and review creation.
+6. Sign in as the supplier and describe: `Offer 4,000 packs of paracetamol 500 mg tablets, pack size 20, at USD 0.44 per pack, within 13 days.` Review the prepared fields, then explicitly submit the quotation for verification.
+7. Open Operations to see real local request counts, decision totals, measured latency, eval pass rate, and integration status.
+8. Use the development-only timeout control to verify safe failure and review creation.
 
 ## API
 
@@ -137,12 +139,14 @@ make down    # stop Docker services
 | `GET` | `/api/supplier/dashboard` | Linked supplier |
 | `POST` | `/api/supplier/submissions/profile` | Linked supplier |
 | `POST` | `/api/supplier/submissions/quotes` | Linked supplier |
+| `POST` | `/api/supplier/quote-drafts` | Linked supplier |
 | `GET` | `/api/supplier-submissions` | Reviewer or admin |
 | `POST` | `/api/supplier-submissions/{id}/decision` | Reviewer or admin |
 | `POST` | `/api/conversations` | Buyer or admin |
 | `GET` | `/api/conversations/{id}` | Owner or admin |
 | `POST` | `/api/conversations/{id}/messages` | Owner or admin |
 | `GET` | `/api/reviews` | Reviewer or admin |
+| `GET` | `/api/reviews/{id}/brief` | Reviewer or admin |
 | `POST` | `/api/reviews/{id}/decision` | Reviewer or admin |
 | `GET` | `/api/operations/summary` | Admin |
 | `GET` | `/api/traces/{id}` | Owner or admin |

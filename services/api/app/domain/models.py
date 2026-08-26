@@ -324,6 +324,41 @@ class SupplierQuoteSubmissionRequest(BaseModel):
         return value.upper()
 
 
+class SupplierQuoteDraftRequest(BaseModel):
+    content: str = Field(min_length=5, max_length=2000)
+
+
+class SupplierQuoteDraft(BaseModel):
+    medicine_name: str | None = None
+    strength: str | None = None
+    dosage_form: str | None = None
+    pack_size: int | None = None
+    available_quantity_packs: int | None = None
+    unit_price: float | None = None
+    currency: str | None = None
+    lead_time_days: int | None = None
+    missing_fields: list[str]
+    ready_to_submit: bool
+    summary: str
+    provider: str
+    prompt_version: Literal["procura-supplier-quote-v1"] = "procura-supplier-quote-v1"
+    trace_id: str
+    no_submission_created: Literal[True] = True
+
+
+class ReviewBrief(BaseModel):
+    review_id: str
+    trace_id: str
+    summary: str
+    evidence_points: list[str]
+    suggested_action: Literal["approve", "reject", "request_clarification"]
+    suggestion_reason: str
+    policy_version: str
+    provider: str
+    prompt_version: Literal["procura-review-brief-v1"] = "procura-review-brief-v1"
+    human_decision_required: Literal[True] = True
+
+
 class SupplierSubmission(BaseModel):
     id: str
     supplier_id: str
