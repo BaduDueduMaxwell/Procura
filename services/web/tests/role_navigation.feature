@@ -1,5 +1,17 @@
 Feature: Role-aware navigation
 
+  Scenario: A buyer reopens a recent procurement decision
+    Given the buyer dashboard lists a persisted decision
+    When the buyer opens that decision
+    Then Procura navigates to a stable decision URL
+    And restores the original conversation and decision evidence
+
+  Scenario: Operational records open instead of acting like static rows
+    Given a reviewer, supplier, or operations user sees a record list
+    When the user selects a case, quotation, submission, or trace
+    Then Procura opens the corresponding evidence on a stable role-appropriate URL
+    And the interaction is available by keyboard
+
   Scenario: Collapsed navigation remains understandable
     Given the navigation is collapsed at a tablet width
     When a buyer moves through the navigation with a keyboard or screen reader

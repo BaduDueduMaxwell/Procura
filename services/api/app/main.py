@@ -388,6 +388,17 @@ def trace(trace_id: str, user: AuthUser = Depends(current_user)):
         return TraceSummary.model_validate_json(row.trace_data)
 
 
+@app.get("/api/executions/{trace_id}", response_model=AgentResponse)
+def execution(trace_id: str, user: AuthUser = Depends(current_user)):
+    """Return the persisted decision result for an owner or operations administrator."""
+    with SessionLocal() as db:
+        row = db.get(ExecutionRow, trace_id)
+        if not row:
+            raise HTTPException(404, "Decision not found")
+        require_owner("conversation", row.conversation_id, user)
+        return AgentResponse.model_validate_json(row.response)
+
+
 @app.get("/api/operations/summary", response_model=OperationsSummary)
 def operations(_: AuthUser = Depends(admin_user)):
     with SessionLocal() as db:

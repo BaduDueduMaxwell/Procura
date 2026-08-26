@@ -123,6 +123,26 @@ describe("guided product journey", () => {
     expect(await screen.findByRole("heading", { name: "Procurement dashboard" })).toBeVisible();
   });
 
+  it("opens a buyer decision from the dashboard with its conversation and evidence", async () => {
+    window.localStorage.setItem("procura-guide:buyer-decision", "seen");
+    const createdAt = new Date().toISOString();
+    const trace = { trace_id:"trace-decision-1",conversation_id:"conversation-decision-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt };
+    const result: AgentResponse = { conversation_id:"conversation-decision-1",message:{id:"assistant-1",role:"assistant",content:"Northstar is recommended.",created_at:createdAt},progress_events:[],request:{id:"request-1",synthetic:true,medicine:{medicine_name:"omeprazole",strength:"20 mg",dosage_form:"capsule",quantity:600,pack_size:28,unit:"packs",cold_chain_required:false},destination:"Ghana",max_lead_time_days:18,currency:"USD"},quotes:[],decision:{status:"recommended",recommendation_supplier_id:"northstar",summary:"Northstar is recommended.",human_review_required:false,escalation_reasons:[],policy_version:"procura-policy-v1",trace_id:"trace-decision-1",no_transaction_completed:true} };
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"buyer-decision",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt });
+    vi.spyOn(api, "createConversation").mockResolvedValue({ id:"empty-shell",messages:[] });
+    vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count:1,execution_count:1,recommendation_count:1,review_count:0,recent_decisions:[trace] });
+    const execution = vi.spyOn(api, "execution").mockResolvedValue(result);
+    vi.spyOn(api, "conversation").mockResolvedValue({ id:"conversation-decision-1",messages:[{id:"user-1",role:"user",content:"We need omeprazole.",created_at:createdAt},result.message] });
+
+    render(<Home />);
+    fireEvent.click(await screen.findByRole("button", { name:/open procurement review 1: recommended/i }));
+
+    expect(await screen.findByText("Northstar is recommended.")).toBeVisible();
+    expect(screen.getByText("Request brief")).toBeVisible();
+    expect(window.location.pathname).toBe("/workspace/decisions/trace-decision-1");
+    expect(execution).toHaveBeenCalledWith("trace-decision-1");
+  });
+
   it("lets buyers search database-backed medicines and prepare a request", async () => {
     window.localStorage.setItem("procura-guide:buyer-catalog", "seen");
     window.history.replaceState({}, "", "/workspace");
@@ -197,6 +217,7 @@ describe("guided product journey", () => {
     expect(screen.getByText("Available capacity")).toBeVisible();
     expect(screen.getByText("4,000 packs")).toBeVisible();
     expect(screen.getByRole("button", { name:"Hide details" })).toHaveAttribute("aria-expanded", "true");
+    expect(window.location.pathname).toBe("/supplier/quotations/quote-1");
   });
 
   it("shows a reviewer brief without recording a decision", async () => {
@@ -210,6 +231,24 @@ describe("guided product journey", () => {
     expect(await screen.findByText("Review brief")).toBeVisible();
     expect(screen.getByText("Suggested: request clarification")).toBeVisible();
     expect(screen.getByText(/reviewer must make the final decision/i)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name:/paracetamol/i }));
+    expect(window.location.pathname).toBe("/reviews/review-1");
     expect(decide).not.toHaveBeenCalled();
+  });
+
+  it("opens operations trace evidence on a stable URL", async () => {
+    window.localStorage.setItem("procura-guide:operations-trace", "seen");
+    window.history.replaceState({}, "", "/operations");
+    const createdAt = new Date().toISOString();
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"operations-trace",email:"operations@procura.example",display_name:"Operations",organization:"Procura",role:"admin",created_at:createdAt });
+    vi.spyOn(api, "createConversation").mockResolvedValue({ id:"operations-shell",messages:[] });
+    vi.spyOn(api, "operations").mockResolvedValue({ request_count:1,autonomous_recommendation_count:1,human_review_count:0,error_count:0,p50_latency_ms:4200,p95_latency_ms:4200,token_usage:730,evaluation_pass_rate:1,langfuse_status:"Langfuse not configured",sentry_status:"Sentry not configured",recent_traces:[{trace_id:"trace-operations-1",conversation_id:"conversation-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt}] });
+
+    render(<Home />);
+    fireEvent.click(await screen.findByRole("button", { name:"Open trace trace-op" }));
+
+    expect(screen.getByText("Trace evidence")).toBeVisible();
+    expect(screen.getByText("gemini · gemini-3.6-flash")).toBeVisible();
+    expect(window.location.pathname).toBe("/operations/traces/trace-operations-1");
   });
 });

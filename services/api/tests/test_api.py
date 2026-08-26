@@ -57,6 +57,38 @@ def test_health_and_happy_path(client):
     assert body["decision"]["no_transaction_completed"]
 
 
+def test_buyer_can_reopen_persisted_decision_and_other_buyer_cannot(client):
+    conversation_id = new_conversation(client)
+    response = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        json={
+            "content": "2,000 packs of amoxicillin 500 mg capsules, pack size 100, to Accra within 21 days in USD",
+            "idempotency_key": "reopen-decision-01",
+        },
+    ).json()
+    trace_id = response["decision"]["trace_id"]
+
+    reopened = client.get(f"/api/executions/{trace_id}")
+
+    assert reopened.status_code == 200
+    assert reopened.json() == response
+
+    client.post("/api/auth/logout")
+    client.post(
+        "/api/auth/signup",
+        json={
+            "email": "another-buyer@example.com",
+            "display_name": "Another Buyer",
+            "organization": "Another Organization",
+            "password": "Another-secure-2026!",
+        },
+    )
+    assert client.get(f"/api/executions/{trace_id}").status_code == 404
+
+    login_admin(client)
+    assert client.get(f"/api/executions/{trace_id}").status_code == 200
+
+
 def test_custom_quantity_uses_availability_and_requested_total(client):
     cid = new_conversation(client)
     payload = {"content":"1,500 packs of paracetamol 500 mg tablets, pack size 20, to Accra within 18 days in USD", "idempotency_key":"capacity-001"}
