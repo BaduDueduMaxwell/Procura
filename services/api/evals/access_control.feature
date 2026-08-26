@@ -1,5 +1,11 @@
 Feature: Role-specific Procura access
 
+  Scenario: A seeded buyer can start procurement work without staff access
+    Given a seeded buyer account
+    When the buyer signs in
+    Then the procurement dashboard and workspace are available
+    And review, supplier, and operations routes are denied
+
   Scenario: A reviewer handles evidence without operational administration
     Given a seeded reviewer account
     When the reviewer signs in

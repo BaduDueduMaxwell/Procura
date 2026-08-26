@@ -113,6 +113,8 @@ def upsert_bootstrap_user(db, *, email: str | None, password: str | None, displa
 
 
 def seed_local_accounts(settings: Settings) -> None:
+    buyer_email = settings.bootstrap_buyer_email if settings.app_env == "production" else "buyer@procura.example"
+    buyer_password = settings.bootstrap_buyer_password if settings.app_env == "production" else "Procura-Buyer-2026!"
     reviewer_email = settings.bootstrap_reviewer_email if settings.app_env == "production" else "reviewer@procura.example"
     reviewer_password = settings.bootstrap_reviewer_password if settings.app_env == "production" else "Procura-Reviewer-2026!"
     admin_email = settings.bootstrap_admin_email if settings.app_env == "production" else "operations@procura.example"
@@ -120,6 +122,7 @@ def seed_local_accounts(settings: Settings) -> None:
     supplier_email = settings.bootstrap_supplier_email if settings.app_env == "production" else "supplier@procura.example"
     supplier_password = settings.bootstrap_supplier_password if settings.app_env == "production" else "Procura-Supplier-2026!"
     with SessionLocal() as db:
+        upsert_bootstrap_user(db, email=buyer_email, password=buyer_password, display_name="Procurement Buyer", role="buyer")
         upsert_bootstrap_user(db, email=reviewer_email, password=reviewer_password, display_name="Procurement Reviewer", role="reviewer")
         upsert_bootstrap_user(db, email=admin_email, password=admin_password, display_name="Operations Administrator", role="admin")
         normalized_supplier_email = normalize_email(supplier_email) if supplier_email else None

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:3001"
     session_cookie_name: str = "procura_session"
     session_days: int = 7
+    bootstrap_buyer_email: str | None = None
+    bootstrap_buyer_password: str | None = None
     bootstrap_reviewer_email: str | None = None
     bootstrap_reviewer_password: str | None = None
     bootstrap_admin_email: str | None = None

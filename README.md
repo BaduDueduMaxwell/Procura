@@ -44,7 +44,14 @@ docker compose up --build
 
 Open [http://localhost:3001](http://localhost:3001). The API health endpoint is [http://localhost:8000/health](http://localhost:8000/health).
 
-The app starts with `LLM_PROVIDER=local`; no external key is required. In local development, a reviewer account is seeded for procurement and supplier approvals:
+The app starts with `LLM_PROVIDER=local`; no external key is required. In local development, a buyer account is seeded for the procurement dashboard and workspace:
+
+```text
+Email: buyer@procura.example
+Password: Procura-Buyer-2026!
+```
+
+A separate reviewer account is seeded for procurement and supplier approvals:
 
 ```text
 Email: reviewer@procura.example
@@ -58,7 +65,7 @@ Email: operations@procura.example
 Password: Procura-Admin-2026!
 ```
 
-Public signup supports buyer and supplier accounts only. Reviewer and administrator privileges cannot be self-assigned. Production staff accounts are provisioned from secret environment variables rather than source-controlled credentials.
+Public signup supports buyer and supplier accounts only. Reviewer and administrator privileges cannot be self-assigned. Production role accounts are provisioned from secret environment variables rather than source-controlled credentials.
 
 An invite-linked supplier portal account is also seeded in local development:
 
@@ -155,6 +162,7 @@ Copy `.env.example` to `.env`. `.env` and SQLite databases are ignored by Git.
 | `LLM_API_KEY` | empty | Hosted provider credential |
 | `DATABASE_URL` | SQLite | Application database |
 | `APP_ENV` | `development` | Disables development controls and local accounts in production |
+| `BOOTSTRAP_BUYER_*` | empty | Optional seeded buyer credentials |
 | `BOOTSTRAP_REVIEWER_*` | empty | Provisioned reviewer credentials |
 | `BOOTSTRAP_ADMIN_*` | empty | Provisioned operations-administrator credentials |
 | `BOOTSTRAP_SUPPLIER_*` | empty | Optional linked supplier credentials |

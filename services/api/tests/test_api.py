@@ -22,6 +22,12 @@ def login_admin(client):
     assert response.status_code == 200
 
 
+def login_seeded_buyer(client):
+    client.post("/api/auth/logout")
+    response = client.post("/api/auth/login", json={"email":"buyer@procura.example","password":"Procura-Buyer-2026!"})
+    assert response.status_code == 200
+
+
 def new_conversation(client):
     authenticate(client)
     return client.post("/api/conversations").json()["id"]
@@ -109,6 +115,16 @@ def test_seeded_reviewer_and_admin_have_distinct_permissions(client):
     assert client.get("/api/operations/summary").status_code == 200
     assert client.post("/api/conversations").status_code == 201
     assert client.get(f"/api/conversations/{conversation_id}").status_code == 200
+    assert client.get("/api/supplier/dashboard").status_code == 403
+
+
+def test_seeded_buyer_has_customer_only_permissions(client):
+    login_seeded_buyer(client)
+    assert client.get("/api/auth/me").json()["role"] == "buyer"
+    assert client.get("/api/dashboard/summary").status_code == 200
+    assert client.post("/api/conversations").status_code == 201
+    assert client.get("/api/reviews").status_code == 403
+    assert client.get("/api/operations/summary").status_code == 403
     assert client.get("/api/supplier/dashboard").status_code == 403
 
 
