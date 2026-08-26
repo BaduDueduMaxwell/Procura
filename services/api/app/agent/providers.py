@@ -22,6 +22,12 @@ class ProviderUsage:
     output_tokens: int = 0
 
 
+@dataclass(frozen=True)
+class ProviderInterpretation:
+    request: ProcurementRequest
+    tool_plan: list[str]
+
+
 class ProcurementExtraction(BaseModel):
     """Facts interpreted from one user turn. Missing values remain null."""
 
@@ -62,6 +68,12 @@ class LLMProvider(ABC):
 
     async def close(self) -> None:
         return None
+
+    async def interpret(self, text: str, previous: ProcurementRequest | None = None) -> ProviderInterpretation:
+        """Interpret intent and select tools, allowing providers to combine both operations."""
+        request = await self.extract(text, previous)
+        tool_plan = [] if request.missing_fields() else await self.select_tools(request)
+        return ProviderInterpretation(request=request, tool_plan=tool_plan)
 
     @abstractmethod
     async def extract(self, text: str, previous: ProcurementRequest | None = None) -> ProcurementRequest: ...
@@ -166,6 +178,7 @@ class GeminiProvider(LLMProvider):
 
     name = "gemini"
     _evaluation_function = "authorize_procurement_evaluation"
+    _interpretation_function = "interpret_procurement_request"
 
     def __init__(self, api_key: str, model: str, policy: str, client: Any | None = None, timeout_seconds: int = 30):
         super().__init__()
@@ -195,6 +208,77 @@ class GeminiProvider(LLMProvider):
     async def _generate(self, contents: str, config: genai_types.GenerateContentConfig) -> Any:
         chat = self._require_client().chats.create(model=self.model, config=config)
         return await chat.send_message(contents)
+
+    async def interpret(self, text: str, previous: ProcurementRequest | None = None) -> ProviderInterpretation:
+        """Extract buyer intent and authorize the fixed evaluation in one Gemini round trip."""
+        self._require_client()
+        previous_context = previous.model_dump_json() if previous else "none"
+        declaration = genai_types.FunctionDeclaration(
+            name=self._interpretation_function,
+            description=(
+                "Extract only procurement facts explicitly stated in the buyer's current message. Calling this "
+                "function authorizes Procura to apply its fixed deterministic supplier checks when the resulting "
+                "request is complete. It does not calculate prices, establish supplier facts, or place an order."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "medicine_name": {"type": "string"},
+                    "strength": {"type": "string"},
+                    "dosage_form": {"type": "string"},
+                    "quantity": {"type": "integer"},
+                    "pack_size": {"type": "integer"},
+                    "unit": {"type": "string"},
+                    "cold_chain_required": {"type": "boolean"},
+                    "destination": {"type": "string"},
+                    "required_delivery_date": {"type": "string", "description": "ISO 8601 date"},
+                    "max_lead_time_days": {"type": "integer"},
+                    "currency": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        )
+        instruction = (
+            f"{self.policy}\n\n"
+            "Interpret buyer intent only. Omit every field not explicitly stated in the current message. "
+            "Do not infer supplier, price, inventory, authorization, compliance, or missing procurement facts. "
+            "The application merges these facts with the previous draft and checks completeness deterministically. "
+            f"Previous draft for conversational context only: {previous_context}"
+        )
+        tool = genai_types.Tool(function_declarations=[declaration])
+        for attempt in range(2):
+            try:
+                response = await self._generate(
+                    text,
+                    genai_types.GenerateContentConfig(
+                        system_instruction=instruction,
+                        temperature=0,
+                        tools=[tool],
+                        tool_config=genai_types.ToolConfig(
+                            function_calling_config=genai_types.FunctionCallingConfig(mode="ANY")
+                        ),
+                    ),
+                )
+                self._record_response_usage(response)
+            except genai_errors.APIError as exc:
+                raise ProviderUnavailableError("Gemini request failed") from exc
+            except Exception as exc:
+                raise ProviderUnavailableError("Gemini request failed") from exc
+            try:
+                calls = response.function_calls or []
+                if len(calls) != 1 or calls[0].name != self._interpretation_function:
+                    raise ValueError("Unexpected Gemini function call")
+                extraction = ProcurementExtraction.model_validate(dict(calls[0].args or {}))
+                values = extraction.model_dump()
+                values["buyer_notes"] = text[:500]
+                request = _merge(previous, values)
+                return ProviderInterpretation(request=request, tool_plan=REQUIRED_TOOL_PLAN.copy())
+            except (ValidationError, TypeError, ValueError, AttributeError) as exc:
+                if attempt == 1:
+                    raise InvalidModelOutputError(
+                        "Gemini returned an invalid procurement function call after one retry"
+                    ) from exc
+        raise InvalidModelOutputError("Unreachable")
 
     async def extract(self, text: str, previous: ProcurementRequest | None = None) -> ProcurementRequest:
         self._require_client()

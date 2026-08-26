@@ -27,6 +27,9 @@ def normalize_procurement_request(request: ProcurementRequest) -> ProcurementReq
     }
     if med.get("dosage_form"):
         med["dosage_form"] = dosage_forms.get(med["dosage_form"], med["dosage_form"])
+    if med.get("unit"):
+        unit = " ".join(med["unit"].strip().lower().split())
+        med["unit"] = {"pack": "packs", "unit": "units"}.get(unit, unit)
     if data.get("currency"): data["currency"] = data["currency"].upper()
     if data.get("destination"):
         destination = data["destination"].strip().title()

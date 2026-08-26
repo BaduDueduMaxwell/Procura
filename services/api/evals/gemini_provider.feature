@@ -17,6 +17,7 @@ Feature: Hosted Gemini interpretation stays inside Procura's autonomy boundary
     When Procura normalizes the typed request
     Then the deterministic destination becomes Ghana
     And a plural dosage form such as capsules becomes the catalogue form capsule
+    And a singular pack unit becomes the canonical unit packs
     And supplier eligibility never depends on a provider guessing the country mapping
 
   Scenario: Invalid hosted output cannot bypass review
@@ -30,3 +31,10 @@ Feature: Hosted Gemini interpretation stays inside Procura's autonomy boundary
     When Procura stores the workflow trace
     Then Operations reports the measured token total
     And model cost remains unavailable unless a verifiable cost is recorded
+
+  Scenario: A complete buyer request uses one model round trip
+    Given Gemini is configured as the hosted language provider
+    When a buyer submits every required procurement field in one message
+    Then Gemini returns those fields through one typed function call
+    And that same function call authorizes the fixed deterministic evaluation
+    And Python alone checks suppliers, calculates prices, and ranks eligible quotations

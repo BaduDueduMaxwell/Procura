@@ -100,7 +100,8 @@ class AgentService:
         self.provider.begin_execution()
         try:
             if simulate_timeout: raise ToolTimeoutError("Supplier verification exceeded its safe deadline")
-            request = normalize_procurement_request(await self.provider.extract(content, conversation.draft))
+            interpretation = await self.provider.interpret(content, conversation.draft)
+            request = normalize_procurement_request(interpretation.request)
             tool_sequence.append("normalize_procurement_request")
             conversation.draft = request
             missing = request.missing_fields()
@@ -110,7 +111,7 @@ class AgentService:
                 assistant = Message(role="assistant", content=question)
                 progress = ["Request understood"]
             else:
-                planned_tools = await self.provider.select_tools(request)
+                planned_tools = interpretation.tool_plan
                 if planned_tools != REQUIRED_TOOL_PLAN:
                     raise ValueError("Unsafe or incomplete tool plan")
                 matches = search_synthetic_suppliers(request, synthetic_suppliers())

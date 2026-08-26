@@ -46,6 +46,21 @@ def test_normalization_singularizes_supported_dosage_forms():
     assert plural.medicine.dosage_form == "capsule"
 
 
+def test_normalization_canonicalizes_singular_pack_unit_from_model_output():
+    singular = request(
+        medicine=MedicineRequirement(
+            medicine_name="omeprazole",
+            strength="20 mg",
+            dosage_form="capsule",
+            quantity=600,
+            pack_size=28,
+            unit="pack",
+        )
+    )
+
+    assert singular.medicine.unit == "packs"
+
+
 def test_authorization_expiry_and_missing():
     suppliers = synthetic_suppliers(); assert validate_supplier_authorization(suppliers[0], date(2026, 1, 1)).passed
     assert not validate_supplier_authorization(suppliers[2]).passed and "missing" in validate_supplier_authorization(suppliers[2]).detail.lower()

@@ -105,6 +105,53 @@ async def test_gemini_provider_extracts_structured_facts_and_records_usage():
     assert config.temperature == 0
 
 
+@pytest.mark.asyncio
+async def test_gemini_interprets_complete_request_and_authorizes_tools_in_one_call():
+    call = SimpleNamespace(
+        name="interpret_procurement_request",
+        args={
+            "medicine_name": "omeprazole",
+            "strength": "20 mg",
+            "dosage_form": "capsule",
+            "quantity": 600,
+            "pack_size": 28,
+            "destination": "Accra",
+            "max_lead_time_days": 18,
+            "currency": "USD",
+        },
+    )
+    client = FakeGeminiClient([gemini_response(calls=[call], input_tokens=510, output_tokens=74)])
+    provider = GeminiProvider("unused", "gemini-test", "policy", client=client)
+    provider.begin_execution()
+
+    result = await provider.interpret(
+        "600 packs of omeprazole 20 mg capsules, pack size 28, to Accra within 18 days in USD"
+    )
+
+    assert len(client.chats.calls) == 1
+    assert result.request.medicine.medicine_name == "omeprazole"
+    assert result.request.medicine.quantity == 600
+    assert result.request.destination == "Accra"
+    assert result.tool_plan == REQUIRED_TOOL_PLAN
+    assert provider.usage == provider.usage.__class__(input_tokens=510, output_tokens=74)
+    config = client.chats.calls[0]["config"]
+    assert config.response_schema is None
+    assert config.tools[0].function_declarations[0].name == "interpret_procurement_request"
+
+
+@pytest.mark.asyncio
+async def test_gemini_single_call_retries_invalid_function_output_once():
+    wrong = SimpleNamespace(name="place_order", args={})
+    valid = SimpleNamespace(name="interpret_procurement_request", args={"medicine_name": "omeprazole"})
+    client = FakeGeminiClient([gemini_response(calls=[wrong]), gemini_response(calls=[valid])])
+    provider = GeminiProvider("unused", "gemini-test", "policy", client=client)
+
+    result = await provider.interpret("omeprazole")
+
+    assert len(client.chats.calls) == 2
+    assert result.request.medicine.medicine_name == "omeprazole"
+
+
 def test_gemini_extraction_schema_uses_only_supported_integer_keywords():
     schema = ProcurementExtraction.model_json_schema()
 

@@ -1,6 +1,12 @@
 from uuid import UUID
 
-from app.agent.providers import DeterministicLLMProvider, GeminiProvider
+from app.agent.providers import (
+    REQUIRED_TOOL_PLAN,
+    DeterministicLLMProvider,
+    GeminiProvider,
+    ProviderInterpretation,
+)
+from app.domain.models import ProcurementRequest
 from app.main import service
 from app.models.database import ResourceOwnerRow, SessionLocal
 from sqlalchemy import select
@@ -62,6 +68,56 @@ def test_custom_quantity_uses_availability_and_requested_total(client):
     assert northstar["supplier_display_name"] == "Northstar Health Supply"
     assert northstar["requested_quantity_packs"] == 1500
     assert northstar["available_quantity_packs"] == 5000
+
+
+def test_agent_service_uses_provider_single_call_interpretation(client):
+    class SingleCallProvider(DeterministicLLMProvider):
+        calls = 0
+
+        async def interpret(self, text, previous=None):
+            self.calls += 1
+            return ProviderInterpretation(
+                request=ProcurementRequest.model_validate(
+                    {
+                        "medicine": {
+                            "medicine_name": "omeprazole",
+                            "strength": "20 mg",
+                            "dosage_form": "capsule",
+                            "quantity": 600,
+                            "pack_size": 28,
+                            "unit": "pack",
+                        },
+                        "destination": "Accra",
+                        "max_lead_time_days": 18,
+                        "currency": "USD",
+                    }
+                ),
+                tool_plan=REQUIRED_TOOL_PLAN.copy(),
+            )
+
+        async def extract(self, text, previous=None):
+            raise AssertionError("AgentService must not make a separate extraction call")
+
+        async def select_tools(self, request):
+            raise AssertionError("AgentService must not make a separate tool-selection call")
+
+    original_provider = service.provider
+    single_call_provider = SingleCallProvider()
+    service.provider = single_call_provider
+    try:
+        conversation_id = new_conversation(client)
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            json={"content": "complete request", "idempotency_key": "single-provider-call-01"},
+        )
+    finally:
+        service.provider = original_provider
+
+    assert response.status_code == 200
+    body = response.json()
+    assert single_call_provider.calls == 1
+    assert body["decision"]["status"] == "recommended"
+    assert body["request"]["medicine"]["unit"] == "packs"
 
 
 def test_clarification_is_business_response(client):
