@@ -271,6 +271,23 @@ class CustomerDashboardSummary(BaseModel):
     recent_decisions: list[TraceSummary]
 
 
+class MedicineCatalogItem(BaseModel):
+    medicine_name: str
+    strength: str
+    dosage_form: str
+    pack_size: int
+    quotation_count: int
+    authorized_supplier_count: int
+    available_quantity_packs: int
+    currencies: list[str]
+    destinations: list[str]
+    cold_chain_available: bool
+    minimum_lead_time_days: int
+    unit_price_from: float
+    unit_price_to: float
+    request_starter: str
+
+
 class SupplierDashboardSummary(BaseModel):
     supplier: Supplier
     quote_count: int

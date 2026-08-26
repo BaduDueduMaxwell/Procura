@@ -134,6 +134,30 @@ def test_seeded_buyer_has_customer_only_permissions(client):
     assert client.get("/api/supplier/dashboard").status_code == 403
 
 
+def test_buyer_catalog_is_built_from_current_quote_records(client):
+    login_seeded_buyer(client)
+    response = client.get("/api/catalog/medicines")
+    assert response.status_code == 200
+    catalog = response.json()
+    medicines = {item["medicine_name"] for item in catalog}
+    assert medicines == {"amoxicillin", "ceftriaxone", "insulin", "paracetamol"}
+    paracetamol = next(item for item in catalog if item["medicine_name"] == "paracetamol" and item["pack_size"] == 20)
+    assert paracetamol["quotation_count"] == 2
+    assert paracetamol["authorized_supplier_count"] == 1
+    assert paracetamol["destinations"] == ["Ghana", "Kenya"]
+    assert paracetamol["unit_price_from"] == 0.41
+    assert paracetamol["request_starter"] == "We need paracetamol 500 mg tablets, pack size 20."
+
+
+def test_catalog_role_boundary_blocks_supplier_and_reviewer(client):
+    login_supplier(client)
+    assert client.get("/api/catalog/medicines").status_code == 403
+    login_reviewer(client)
+    assert client.get("/api/catalog/medicines").status_code == 403
+    login_admin(client)
+    assert client.get("/api/catalog/medicines").status_code == 200
+
+
 def test_public_signup_cannot_assign_staff_roles(client):
     payload = {"email":"self-admin@example.com","display_name":"Self Admin","organization":"Test","password":"A-secure-password-2026!","account_type":"admin"}
     assert client.post("/api/auth/signup", json=payload).status_code == 422

@@ -1,4 +1,4 @@
-import type { AgentResponse, AuthUser, Conversation, CustomerDashboard, Operations, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierSubmission, Trace } from "./types";
+import type { AgentResponse, AuthUser, Conversation, CustomerDashboard, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierSubmission, Trace } from "./types";
 import * as Sentry from "@sentry/nextjs";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
@@ -46,6 +46,7 @@ export const api = {
   login: (email: string, password: string) => request<AuthUser>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   customerDashboard: () => request<CustomerDashboard>("/api/dashboard/summary"),
+  medicineCatalog: () => request<MedicineCatalogItem[]>("/api/catalog/medicines"),
   supplierDashboard: () => request<SupplierDashboard>("/api/supplier/dashboard"),
   submitSupplierProfile: (body: { display_name: string; destinations: string[]; cold_chain: boolean; authorization_expiry: string }) => request<SupplierSubmission>("/api/supplier/submissions/profile", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) }),
   submitSupplierQuote: (body: { quote_id?: string; action?: "upsert" | "withdraw"; medicine_name: string; strength: string; dosage_form: string; pack_size: number; available_quantity_packs: number; unit_price: number; currency: string; lead_time_days: number }) => request<SupplierSubmission>("/api/supplier/submissions/quotes", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) }),

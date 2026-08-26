@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Activity, ArrowRight, ArrowUp, Building2, Check, ChevronLeft, CircleHelp, ClipboardCheck, FileSearch, LayoutDashboard, LogOut, MessageSquareText, PackageCheck, PanelRight, Plus, RefreshCw, Send, Shield, TriangleAlert, WifiOff, X } from "lucide-react";
+import { Activity, ArrowRight, ArrowUp, Building2, Check, ChevronLeft, CircleHelp, ClipboardCheck, FileSearch, LayoutDashboard, LogOut, MessageSquareText, PackageCheck, PanelRight, Plus, RefreshCw, Search, Send, Shield, TriangleAlert, WifiOff, X } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AgentResponse, AuthUser, CustomerDashboard as CustomerDashboardData, Operations, ReviewBrief, ReviewCase, SupplierDashboard as SupplierDashboardData, SupplierQuoteDraft, SupplierSubmission } from "@/lib/types";
+import type { AgentResponse, AuthUser, CustomerDashboard as CustomerDashboardData, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard as SupplierDashboardData, SupplierQuoteDraft, SupplierSubmission } from "@/lib/types";
 import { DecisionCards } from "@/components/DecisionCards";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -42,6 +42,7 @@ export default function Home() {
   const [tourStep, setTourStep] = useState<number | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const noticeId = useRef(0);
 
   const navigate = useCallback((next: Screen, replace = false) => {
@@ -120,7 +121,7 @@ export default function Home() {
       <section className="conversation" aria-label="Procurement conversation">
         <div className="conversation-head"><div><p className="eyebrow">Procurement review</p><h1>Describe what you need</h1></div><div className="head-actions"><button className="quiet-button tablet-evidence" onClick={() => setDrawer(true)} aria-label="Open decision evidence"><PanelRight size={16} />Evidence</button><button className="quiet-button desktop-only" onClick={startNew}><Plus size={16} />New request</button></div></div>
         <div className="messages" aria-live="polite">
-          {messages.length === 0 && <EmptyState onExample={example => submit(undefined, example)} />}
+          {messages.length === 0 && <EmptyState onExample={example => submit(undefined, example)} onCatalogItem={starter => { setInput(starter); window.setTimeout(() => composerRef.current?.focus(), 0); }} />}
           {messages.map((message, index) => <article className={`message ${message.role}`} key={index}>
             <div className="message-label">{message.role === "user" ? "You" : "Procura"}</div>
             <div className="message-body"><p>{message.content}</p>{message.result && <DecisionCards result={message.result} />}</div>
@@ -131,7 +132,7 @@ export default function Home() {
         </div>
         <form className="composer" data-tour="composer" onSubmit={submit}>
           <label htmlFor="request-input" className="sr-only">Procurement request</label>
-          <textarea id="request-input" value={input} onChange={event => setInput(event.target.value)} maxLength={4000} rows={2} placeholder="Describe a medicine, quantity, destination, and delivery need…" onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} />
+          <textarea ref={composerRef} id="request-input" value={input} onChange={event => setInput(event.target.value)} maxLength={4000} rows={2} placeholder="Describe a medicine, quantity, destination, and delivery need…" onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); } }} />
           <button className="send-button" type="submit" disabled={!input.trim() || loading} aria-label="Send procurement request"><ArrowUp size={19} /></button>
           <p>Recommendations require your organization&apos;s approval.</p>
         </form>
@@ -154,7 +155,12 @@ function Nav({ screen, setScreen, onNew, onGuide, user, onLogout }: { screen: Sc
   const canCreateRequest = user.role === "buyer" || user.role === "admin";
   return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{canCreateRequest && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role === "admin" ? "operations admin" : user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
 }
-function EmptyState({ onExample }: { onExample: (s: string) => void }) { return <div className="empty-state"><div className="empty-icon"><FileSearch size={25} /></div><h2>Start with a procurement need</h2><p>Procura structures the requirement, compares supplier quotations, and sends exceptions to the right reviewer.</p><div className="examples"><span>Try an example</span>{examples.map((example, i) => <button key={example} onClick={() => onExample(example)}><span>0{i + 1}</span>{i === 0 ? "Paracetamol comparison" : i === 1 ? "Cold-chain insulin" : "Ceftriaxone clarification"}<Send size={14} /></button>)}</div></div>; }
+function EmptyState({ onExample, onCatalogItem }: { onExample: (s: string) => void; onCatalogItem: (s: string) => void }) {
+  const [catalog, setCatalog] = useState<MedicineCatalogItem[]>([]); const [query, setQuery] = useState(""); const [catalogError, setCatalogError] = useState(false);
+  useEffect(() => { api.medicineCatalog().then(setCatalog).catch(() => setCatalogError(true)); }, []);
+  const filtered = catalog.filter(item => `${item.medicine_name} ${item.strength} ${item.dosage_form}`.includes(query.trim().toLowerCase()));
+  return <div className="empty-state catalog-empty"><div className="empty-icon"><FileSearch size={25} /></div><h2>Start with a procurement need</h2><p>Search medicines with active supplier quotations, or describe any requirement in the conversation.</p><section className="catalog-panel" data-tour="catalog" aria-labelledby="catalog-heading"><div className="catalog-head"><div><span>Available medicines</span><h3 id="catalog-heading">Browse current quotation coverage</h3></div><label><span className="sr-only">Search available medicines</span><Search size={15}/><input value={query} onChange={event => setQuery(event.target.value.toLowerCase())} placeholder="Search medicine or strength"/></label></div>{catalogError ? <p className="catalog-message" role="alert">Medicine availability could not be loaded.</p> : catalog.length === 0 ? <p className="catalog-message" role="status">Loading current quotation coverage…</p> : filtered.length === 0 ? <p className="catalog-message">No matching medicine has an active quotation.</p> : <div className="catalog-grid">{filtered.map(item => <article key={`${item.medicine_name}-${item.strength}-${item.dosage_form}-${item.pack_size}`}><div className="catalog-title"><div><strong>{item.medicine_name}</strong><span>{item.strength} · {item.dosage_form} · pack {item.pack_size}</span></div><span>{item.authorized_supplier_count} verified</span></div><dl><div><dt>Quotation coverage</dt><dd>{item.quotation_count} active</dd></div><div><dt>Available capacity</dt><dd>{item.available_quantity_packs.toLocaleString()} packs</dd></div><div><dt>Fastest delivery</dt><dd>{item.minimum_lead_time_days} days</dd></div><div><dt>Markets</dt><dd>{item.destinations.join(", ") || "Review required"}</dd></div></dl><div className="catalog-footer"><small>{item.currencies.join(", ")} {item.unit_price_from.toFixed(2)}–{item.unit_price_to.toFixed(2)} per pack</small><button onClick={() => onCatalogItem(item.request_starter)}>Use in request<ArrowRight size={14}/></button></div></article>)}</div>}</section><div className="examples"><span>Or run a complete example</span>{examples.map((example, i) => <button key={example} onClick={() => onExample(example)}><span>0{i + 1}</span>{i === 0 ? "Paracetamol comparison" : i === 1 ? "Cold-chain insulin" : "Ceftriaxone clarification"}<Send size={14} /></button>)}</div></div>;
+}
 
 function tourSteps(role: AuthUser["role"]): TourStep[] {
   if (role === "supplier") return [
@@ -172,6 +178,7 @@ function tourSteps(role: AuthUser["role"]): TourStep[] {
     { title: `Welcome to Procura`, description: "Here is the quickest path from a medicine requirement to a clear, reviewable supplier decision.", screen: "dashboard" },
     { title: "Start from the dashboard", description: "See request volume, recommendations, review handoffs, and your most recent decisions in one place.", screen: "dashboard", target: "dashboard" },
     { title: "Open the procurement workspace", description: "Select Workspace whenever you want to describe a new need or continue a procurement review.", screen: "dashboard", target: "nav-chat" },
+    { title: "Browse current medicine coverage", description: "Search medicine variants with active quotations, compare current coverage, and place verified product facts into your request.", screen: "chat", target: "catalog" },
     { title: "Describe the complete requirement", description: "Enter the medicine, strength, form, quantity, pack size, destination, deadline, and currency in ordinary language.", screen: "chat", target: "composer" },
     { title: "Follow the decision evidence", description: "Supplier checks, exclusions, policy details, and the decision record remain visible beside the conversation.", screen: "chat", target: "evidence" }
   ];

@@ -18,6 +18,7 @@ from app.domain.models import (
     CustomerDashboardSummary,
     HumanReviewCase,
     LoginRequest,
+    MedicineCatalogItem,
     MessageRequest,
     OperationsSummary,
     ReviewBrief,
@@ -57,6 +58,7 @@ from app.services.auth import (
     seed_local_accounts,
     staff_user,
 )
+from app.services.catalog import list_medicine_catalog
 from app.services.role_assistants import create_review_brief, draft_supplier_quote
 from app.services.seed import seed_supplier_database, synthetic_suppliers
 
@@ -154,6 +156,13 @@ def customer_dashboard(user: AuthUser = Depends(current_user)):
         review_rows = db.scalars(select(ReviewRow)).all()
         review_count = sum(HumanReviewCase.model_validate_json(row.data).conversation_id in conversation_ids for row in review_rows)
         return CustomerDashboardSummary(conversation_count=len(conversation_ids), execution_count=len(rows), recommendation_count=sum(row.decision == "recommended" for row in rows), review_count=review_count, recent_decisions=[TraceSummary.model_validate_json(row.trace_data) for row in rows[:5]])
+
+
+@app.get("/api/catalog/medicines", response_model=list[MedicineCatalogItem])
+def medicine_catalog(user: AuthUser = Depends(current_user)):
+    if user.role not in {"buyer", "admin"}:
+        raise HTTPException(403, "Customer workspace required")
+    return list_medicine_catalog()
 
 
 @app.get("/api/supplier/dashboard", response_model=SupplierDashboardSummary)
