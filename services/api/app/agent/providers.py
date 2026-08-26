@@ -5,6 +5,7 @@ from typing import Any
 
 from app.domain.errors import InvalidModelOutputError, ProviderUnavailableError
 from app.domain.models import ProcurementRequest
+from app.services.catalog_terms import CATALOG_MEDICINES
 from openai import AsyncOpenAI
 
 
@@ -51,11 +52,10 @@ class DeterministicLLMProvider(LLMProvider):
         if "provider failure" in lower:
             raise ProviderUnavailableError("Simulated local provider failure")
         values: dict[str, Any] = {"buyer_notes": text[:500]}
-        medicines = ["amoxicillin", "insulin", "artemether-lumefantrine", "paracetamol", "ceftriaxone"]
-        values["medicine_name"] = next((m for m in medicines if m in lower), None)
-        strength = re.search(r"\b(\d+(?:\.\d+)?)\s*(mg|g|iu/ml|units/ml)\b", lower)
+        values["medicine_name"] = next((medicine for medicine in CATALOG_MEDICINES if medicine in lower), None)
+        strength = re.search(r"\b(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?)\s*(mg|g|iu/ml|units/ml)\b", lower)
         values["strength"] = f"{strength.group(1)} {strength.group(2)}" if strength else None
-        form_match = re.search(r"\b(tablets?|capsules?|vials?|bottles?|sachets?)\b", lower)
+        form_match = re.search(r"\b(tablets?|capsules?|vials?|bottles?|sachets?|ampoules?)\b", lower)
         values["dosage_form"] = form_match.group(1).rstrip("s") if form_match else None
         qty = re.search(r"\b([\d,]+)\s*(?:packs?|units?)\b", lower)
         values["quantity"] = int(qty.group(1).replace(",", "")) if qty else None

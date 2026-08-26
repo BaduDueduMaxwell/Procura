@@ -18,6 +18,8 @@ async def test_demo_provider_is_predictable():
         ("5,000 packs of paracetamol 500 mg tablets, pack size 100, to Accra within 18 days in USD", "paracetamol", "500 mg", "tablet"),
         ("300 packs of insulin 100 units/ml vials, pack size 10, cold chain, to Ghana within 21 days in USD", "insulin", "100 units/ml", "vial"),
         ("500 packs of ceftriaxone 1 g vials, pack size 10, to Nairobi within 25 days in USD", "ceftriaxone", "1 g", "vial"),
+        ("800 packs of artemether-lumefantrine 20/120 mg tablets, pack size 24, to Accra within 18 days in USD", "artemether-lumefantrine", "20/120 mg", "tablet"),
+        ("1,000 packs of oral rehydration salts 20.5 g sachets, pack size 20, to Ghana within 14 days in USD", "oral rehydration salts", "20.5 g", "sachet"),
     ],
 )
 async def test_local_provider_extracts_multiple_medicines(text, medicine, strength, form):

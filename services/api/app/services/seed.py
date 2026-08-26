@@ -3,6 +3,7 @@ from datetime import date
 
 from app.domain.models import QuoteLine, Supplier, SupplierAuthorization, SupplierCapability, SupplierQuote
 from app.models.database import AppStateRow, QuoteRow, SessionLocal, SupplierRow
+from app.services.catalog_terms import CATALOG_MEDICINES
 from sqlalchemy import select
 
 SEED_SUPPLIERS = [
@@ -33,8 +34,26 @@ SEED_QUOTES = [
     {"id":"q-northstar-insulin","supplier":"northstar","medicine":"insulin","strength":"100 units/ml","form":"vial","pack":10,"quantity":300,"price":42.00,"lead":15,"currency":"USD"},
     {"id":"q-kora-insulin","supplier":"kora","medicine":"insulin","strength":"100 units/ml","form":"vial","pack":10,"quantity":300,"price":39.50,"lead":14,"currency":"USD"},
     {"id":"q-cedar-insulin","supplier":"cedar","medicine":"insulin","strength":"100 units/ml","form":"vial","pack":10,"quantity":300,"price":41.25,"lead":16,"currency":"USD"},
+    # Additional fictional quotation coverage brings the searchable catalogue to 20 medicines.
+    {"id":"q-northstar-amlodipine","supplier":"northstar","medicine":"amlodipine","strength":"5 mg","form":"tablet","pack":30,"quantity":2400,"price":1.85,"lead":12,"currency":"USD"},
+    {"id":"q-northstar-artemether-lumefantrine","supplier":"northstar","medicine":"artemether-lumefantrine","strength":"20/120 mg","form":"tablet","pack":24,"quantity":1800,"price":6.40,"lead":16,"currency":"USD"},
+    {"id":"q-northstar-artesunate","supplier":"northstar","medicine":"artesunate","strength":"100 mg","form":"vial","pack":6,"quantity":900,"price":14.20,"lead":15,"currency":"USD"},
+    {"id":"q-kora-azithromycin","supplier":"kora","medicine":"azithromycin","strength":"500 mg","form":"tablet","pack":3,"quantity":3200,"price":2.70,"lead":17,"currency":"USD"},
+    {"id":"q-northstar-ciprofloxacin","supplier":"northstar","medicine":"ciprofloxacin","strength":"500 mg","form":"tablet","pack":10,"quantity":2600,"price":3.90,"lead":13,"currency":"USD"},
+    {"id":"q-kora-cotrimoxazole","supplier":"kora","medicine":"co-trimoxazole","strength":"480 mg","form":"tablet","pack":100,"quantity":1700,"price":5.10,"lead":18,"currency":"USD"},
+    {"id":"q-northstar-doxycycline","supplier":"northstar","medicine":"doxycycline","strength":"100 mg","form":"capsule","pack":10,"quantity":2100,"price":2.35,"lead":12,"currency":"USD"},
+    {"id":"q-northstar-gentamicin","supplier":"northstar","medicine":"gentamicin","strength":"80 mg","form":"ampoule","pack":10,"quantity":1100,"price":8.60,"lead":16,"currency":"USD"},
+    {"id":"q-kora-glibenclamide","supplier":"kora","medicine":"glibenclamide","strength":"5 mg","form":"tablet","pack":100,"quantity":1500,"price":2.95,"lead":19,"currency":"USD"},
+    {"id":"q-northstar-losartan","supplier":"northstar","medicine":"losartan","strength":"50 mg","form":"tablet","pack":30,"quantity":2000,"price":3.25,"lead":14,"currency":"USD"},
+    {"id":"q-kora-metformin","supplier":"kora","medicine":"metformin","strength":"500 mg","form":"tablet","pack":100,"quantity":4000,"price":4.10,"lead":17,"currency":"USD"},
+    {"id":"q-northstar-omeprazole","supplier":"northstar","medicine":"omeprazole","strength":"20 mg","form":"capsule","pack":28,"quantity":2800,"price":3.45,"lead":13,"currency":"USD"},
+    {"id":"q-northstar-ors","supplier":"northstar","medicine":"oral rehydration salts","strength":"20.5 g","form":"sachet","pack":20,"quantity":6000,"price":2.10,"lead":11,"currency":"USD"},
+    {"id":"q-northstar-oxytocin","supplier":"northstar","medicine":"oxytocin","strength":"10 iu/ml","form":"ampoule","pack":10,"quantity":700,"price":9.80,"lead":14,"currency":"USD"},
+    {"id":"q-kora-salbutamol","supplier":"kora","medicine":"salbutamol","strength":"4 mg","form":"tablet","pack":100,"quantity":2300,"price":2.60,"lead":18,"currency":"USD"},
+    {"id":"q-northstar-zinc","supplier":"northstar","medicine":"zinc sulfate","strength":"20 mg","form":"tablet","pack":10,"quantity":3500,"price":1.40,"lead":12,"currency":"USD"},
 ]
-CATALOG_VERSION = "procura-catalog-v2-capacity"
+assert len({quote["medicine"] for quote in SEED_QUOTES}) == len(CATALOG_MEDICINES) == 20
+CATALOG_VERSION = "procura-catalog-v3-20-medicines"
 
 
 def seed_supplier_database() -> None:

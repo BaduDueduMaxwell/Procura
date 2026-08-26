@@ -1,6 +1,7 @@
 from datetime import date
 
 from app.domain.models import MedicineRequirement, ProcurementRequest
+from app.services.catalog_terms import CATALOG_MEDICINES
 from app.services.seed import synthetic_suppliers
 from app.services.tools import (
     compare_quote_prices,
@@ -65,6 +66,11 @@ def test_seeded_catalog_supports_multiple_medicines():
     assert ranked[0].total_price == 690.0
     assert ranked[0].requested_quantity_packs == 1500
     assert ranked[0].available_quantity_packs == 5000
+
+
+def test_seeded_catalog_contains_exactly_twenty_searchable_medicines():
+    medicines = {quote.line.medicine_name for supplier in synthetic_suppliers() for quote in supplier.quotes}
+    assert medicines == set(CATALOG_MEDICINES)
 
 
 def test_currency_mismatch_is_not_converted():

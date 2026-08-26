@@ -1,7 +1,7 @@
 Feature: Buyers can discover supported medicines before making a request
 
   Scenario: Search current quotation coverage without loading the full catalogue
-    Given the buyer opens an empty procurement workspace
+    Given the buyer opens an empty procurement workspace with 20 searchable medicines
     When the buyer searches by medicine, strength, or dosage form
     Then the server returns no more than six matching variants
     And each result shows the supplier, quotation, and delivery evidence needed to choose it

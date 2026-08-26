@@ -215,7 +215,7 @@ Langfuse records one sanitized trace per execution when configured. Sentry recor
 - SQLite is correct for a single-node local environment, not concurrent production writes. Move the unchanged SQLAlchemy repository boundary to PostgreSQL before multi-instance deployment.
 - Session revocation is database-backed, but password reset, email verification, MFA, organization invitations, and admin role management need a trusted email service and production identity policy.
 - The SSE contract exists, while the current interface renders bounded progress immediately during synchronous local execution.
-- Seed quotations cover amoxicillin, paracetamol, ceftriaxone, and insulin workflows, not a broad medicine catalogue.
+- Seed quotations cover 20 medicine names for discovery and interview workflows. They remain fictional procurement records and are not a complete formulary or inventory system.
 - External Langfuse, Sentry, and hosted-model delivery require user-owned credentials and were not claimed as externally verified.
 
 ## Implementation rationale and rollback
