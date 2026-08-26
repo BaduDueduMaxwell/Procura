@@ -153,9 +153,23 @@ def customer_dashboard(user: AuthUser = Depends(current_user)):
     with SessionLocal() as db:
         conversation_ids = list(db.scalars(select(ResourceOwnerRow.resource_id).where(ResourceOwnerRow.resource_type == "conversation", ResourceOwnerRow.user_id == user.id)).all())
         rows = db.scalars(select(ExecutionRow).where(ExecutionRow.conversation_id.in_(conversation_ids)).order_by(ExecutionRow.created_at.desc())).all() if conversation_ids else []
-        review_rows = db.scalars(select(ReviewRow)).all()
-        review_count = sum(HumanReviewCase.model_validate_json(row.data).conversation_id in conversation_ids for row in review_rows)
-        return CustomerDashboardSummary(conversation_count=len(conversation_ids), execution_count=len(rows), recommendation_count=sum(row.decision == "recommended" for row in rows), review_count=review_count, recent_decisions=[TraceSummary.model_validate_json(row.trace_data) for row in rows[:5]])
+        # Opening the workspace creates an empty conversation shell. Count it as
+        # a request only after the buyer submits a message, and use the latest
+        # execution so clarification turns cannot inflate the dashboard totals.
+        latest_rows: dict[str, ExecutionRow] = {}
+        for row in rows:
+            latest_rows.setdefault(row.conversation_id, row)
+        requests = list(latest_rows.values())
+        evaluated = [row for row in requests if row.decision != "clarification"]
+        review_cases = [HumanReviewCase.model_validate_json(row.data) for row in db.scalars(select(ReviewRow)).all()]
+        review_count = sum(case.conversation_id in conversation_ids and case.status == "open" for case in review_cases)
+        return CustomerDashboardSummary(
+            conversation_count=len(requests),
+            execution_count=len(evaluated),
+            recommendation_count=sum(row.decision == "recommended" for row in requests),
+            review_count=review_count,
+            recent_decisions=[TraceSummary.model_validate_json(row.trace_data) for row in requests[:5]],
+        )
 
 
 @app.get("/api/catalog/medicines", response_model=list[MedicineCatalogItem])

@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from app.agent.providers import REQUIRED_TOOL_PLAN, DeterministicLLMProvider, OpenAIProvider
 from app.config import Settings
-from app.domain.errors import ToolTimeoutError
+from app.domain.errors import InvalidModelOutputError, PersistenceError, ProviderUnavailableError, ToolTimeoutError
 from app.domain.models import (
     AgentDecision,
     AgentResponse,
@@ -27,6 +27,21 @@ from app.services.tools import (
 from sqlalchemy import select
 
 PROGRESS = ["Request understood", "Checking supplier eligibility", "Comparing quotations", "Applying review policy", "Recommendation ready"]
+
+
+def safe_failure_message(exc: Exception) -> tuple[str, str]:
+    """Return an actionable summary and review reason without leaking internals."""
+    if isinstance(exc, ToolTimeoutError):
+        return ("Supplier verification did not finish within the safe processing limit. A staff review case was created.", "Supplier verification timed out before all eligibility checks completed.")
+    if isinstance(exc, ProviderUnavailableError):
+        return ("The request interpreter was temporarily unavailable. A staff review case was created.", "The request could not be interpreted reliably because the language provider was unavailable.")
+    if isinstance(exc, InvalidModelOutputError):
+        return ("The request could not be converted into a valid procurement record. A staff review case was created.", "The language provider returned an invalid structured request after one retry.")
+    if isinstance(exc, PersistenceError):
+        return ("The decision record could not be saved safely. A staff review case was created.", "Procura could not verify that the workflow record was stored successfully.")
+    if isinstance(exc, ValueError) and str(exc) == "Unsafe or incomplete tool plan":
+        return ("The required verification sequence was incomplete. A staff review case was created.", "The verification sequence omitted one or more required supplier checks.")
+    return ("The procurement review stopped before a safe recommendation could be produced. A staff review case was created.", "An unexpected processing failure prevented Procura from completing all required checks.")
 
 
 class AgentService:
@@ -56,6 +71,7 @@ class AgentService:
         if not conversation: raise KeyError(conversation_id)
         conversation.messages.append(Message(role="user", content=content))
         quotes, tool_sequence, review_reasons = [], [], []
+        request = conversation.draft or ProcurementRequest(medicine={})
         try:
             if simulate_timeout: raise ToolTimeoutError("Supplier verification exceeded its safe deadline")
             request = normalize_procurement_request(await self.provider.extract(content, conversation.draft))
@@ -107,9 +123,9 @@ class AgentService:
                 human_review_required="true",
                 error_category=type(exc).__name__,
             )
-            request = conversation.draft or ProcurementRequest(medicine={})
-            review_reasons = [f"Safe failure: {type(exc).__name__}"]
-            decision = AgentDecision(status="failed_safe", summary="The workflow could not complete safely. A staff review case was created.", human_review_required=True, escalation_reasons=review_reasons, trace_id=trace_id)
+            summary, review_reason = safe_failure_message(exc)
+            review_reasons = [review_reason]
+            decision = AgentDecision(status="failed_safe", summary=summary, human_review_required=True, escalation_reasons=review_reasons, trace_id=trace_id)
             assistant, progress = Message(role="assistant", content=decision.summary), ["Request understood", "Applying review policy"]
         conversation.messages.append(assistant)
         latency = round((time.perf_counter() - started) * 1000, 2)

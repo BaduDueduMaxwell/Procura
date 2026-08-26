@@ -3,6 +3,18 @@ import type { AgentResponse } from "@/lib/types";
 import { StatusBadge } from "./StatusBadge";
 
 const names: Record<string, string> = { northstar: "Northstar Health Supply", kora: "Kora Medical Logistics", baobab: "Baobab Pharma Collective", lumina: "Lumina Essential Medicines", cedar: "Cedar Bridge Therapeutics" };
+export function formatReviewReason(reason: string): string {
+  const legacy: Record<string, string> = {
+    "Safe failure: ValueError": "The verification sequence was incomplete, so Procura stopped before evaluating suppliers.",
+    "Safe failure: ToolTimeoutError": "Supplier verification timed out before all eligibility checks completed.",
+    "Safe failure: ProviderUnavailableError": "The request could not be interpreted because the language provider was unavailable.",
+    "Safe failure: InvalidModelOutputError": "The request interpreter returned an invalid structured request after one retry.",
+  };
+  const prefix = reason.startsWith("Escalation: ") ? "Escalation: " : "";
+  const raw = prefix ? reason.slice(prefix.length) : reason;
+  const readable = legacy[raw] ?? raw.replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
+  return `${prefix}${readable}`;
+}
 export function DecisionCards({ result }: { result: AgentResponse }) {
   const { request, quotes, decision } = result;
   const recommendedQuote = quotes.find(quote => quote.supplier_id === decision.recommendation_supplier_id);
@@ -15,7 +27,7 @@ export function DecisionCards({ result }: { result: AgentResponse }) {
         <div><dt>Delivery</dt><dd>{request.max_lead_time_days ? `Within ${request.max_lead_time_days} days` : "Pending"}</dd></div><div><dt>Currency</dt><dd>{request.currency || "Pending"}</dd></div>
       </dl>
     </section>
-    {decision.human_review_required && <div className="review-banner" role="status"><CircleAlert size={20} /><div><strong>Human review required</strong>{decision.escalation_reasons.length ? <ul>{decision.escalation_reasons.map(reason => <li key={reason}>{reason}</li>)}</ul> : <p>An unsafe condition requires staff review.</p>}</div></div>}
+    {decision.human_review_required && <div className="review-banner" role="status"><CircleAlert size={20} /><div><strong>Human review required</strong>{decision.escalation_reasons.length ? <ul>{decision.escalation_reasons.map(reason => <li key={reason}>{formatReviewReason(reason)}</li>)}</ul> : <p>An unsafe condition requires staff review.</p>}</div></div>}
     {quotes.length > 0 && <section className="data-card quote-card"><div className="card-title"><h3>Quotation comparison</h3><span>{quotes.length} reviewed</span></div>
       <div className="quote-table" role="table" aria-label="Supplier quotation comparison">
         {quotes.map((quote, index) => <div className="quote-row" role="row" key={quote.quote_id}>

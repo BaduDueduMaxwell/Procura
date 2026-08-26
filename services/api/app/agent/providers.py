@@ -57,7 +57,7 @@ class DeterministicLLMProvider(LLMProvider):
         values["strength"] = f"{strength.group(1)} {strength.group(2)}" if strength else None
         form_match = re.search(r"\b(tablets?|capsules?|vials?|bottles?|sachets?|ampoules?)\b", lower)
         values["dosage_form"] = form_match.group(1).rstrip("s") if form_match else None
-        qty = re.search(r"\b([\d,]+)\s*(?:packs?|units?)\b", lower)
+        qty = re.search(r"\b(\d[\d,]*)\s*(?:packs?|units?)\b", lower)
         values["quantity"] = int(qty.group(1).replace(",", "")) if qty else None
         pack = re.search(r"(?:pack(?:ed| size)?(?: of|\s|=)|×|x)\s*(\d+)\b", lower)
         values["pack_size"] = int(pack.group(1)) if pack else None

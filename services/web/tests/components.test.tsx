@@ -2,7 +2,7 @@ import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatusBadge } from "@/components/StatusBadge";
-import { DecisionCards } from "@/components/DecisionCards";
+import { DecisionCards, formatReviewReason } from "@/components/DecisionCards";
 import type { AgentResponse } from "@/lib/types";
 import Home from "@/app/page";
 import { api, formatApiError } from "@/lib/api";
@@ -12,6 +12,10 @@ Object.defineProperty(window, "localStorage", { configurable: true, value: { get
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.localStorage.clear(); window.history.replaceState({}, "", "/"); });
 
 describe("critical decision rendering", () => {
+  it("turns legacy exception names into actionable review reasons", () => {
+    expect(formatReviewReason("Safe failure: ValueError")).toBe("The verification sequence was incomplete, so Procura stopped before evaluating suppliers.");
+    expect(formatReviewReason("Escalation: Safe failure: ToolTimeoutError")).toContain("Supplier verification timed out");
+  });
   it("announces eligibility with text, not color alone", () => { render(<StatusBadge status="eligible" />); expect(screen.getByText("Eligible")).toBeVisible(); });
   it("does not label clarification as eligible", () => { render(<StatusBadge status="clarification" />); expect(screen.getByText("Needs information")).toBeVisible(); expect(screen.queryByText("Eligible")).not.toBeInTheDocument(); });
   it("shows review boundary and no-transaction statement", () => {
@@ -172,6 +176,18 @@ describe("guided product journey", () => {
     expect(screen.getByText("No quotation has been submitted.")).toBeVisible();
     expect(draft).toHaveBeenCalledOnce();
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("lets a supplier inspect active quotation evidence", async () => {
+    window.localStorage.setItem("procura-guide:supplier-quotes", "seen");
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"supplier-quotes",email:"supplier@procura.example",display_name:"Supplier",organization:"Aster",role:"supplier",created_at:new Date().toISOString() });
+    vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"aster",display_name:"Aster",authorization:{status:"authorized",expiry_date:"2028-12-31"},capability:{destinations:["Ghana"],cold_chain:true},reliability_score:.9,quotes:[{id:"quote-1",currency:"USD",lead_time_days:13,line:{medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",pack_size:20,quantity_packs:4000,unit_price:.44}}]},quote_count:1,eligible_destination_count:1,compliance_state:"authorized",submissions:[] });
+    render(<Home />);
+    expect(await screen.findByRole("button", { name:"View 1 active quotations" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name:"View details" }));
+    expect(screen.getByText("Available capacity")).toBeVisible();
+    expect(screen.getByText("4,000 packs")).toBeVisible();
+    expect(screen.getByRole("button", { name:"Hide details" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows a reviewer brief without recording a decision", async () => {

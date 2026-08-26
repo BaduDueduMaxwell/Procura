@@ -68,6 +68,43 @@ def test_clarification_is_business_response(client):
     assert body["decision"]["status"] == "clarification" and body["message"]["content"].startswith("What")
 
 
+def test_partial_catalog_request_keeps_extracted_fields_and_asks_for_quantity(client):
+    cid = new_conversation(client)
+    body = client.post(
+        f"/api/conversations/{cid}/messages",
+        json={"content": "We need amlodipine 5 mg tablets, pack size 30 and price in USD", "idempotency_key": "partial-amlodipine-01"},
+    ).json()
+    assert body["decision"]["status"] == "clarification"
+    assert body["decision"]["human_review_required"] is False
+    assert body["message"]["content"] == "What quantity should I use?"
+    assert body["request"]["medicine"]["medicine_name"] == "amlodipine"
+    assert body["request"]["medicine"]["strength"] == "5 mg"
+    assert body["request"]["medicine"]["dosage_form"] == "tablet"
+    assert body["request"]["medicine"]["pack_size"] == 30
+    assert body["request"]["currency"] == "USD"
+
+
+def test_customer_dashboard_ignores_empty_shells_and_counts_latest_request_state(client):
+    login_seeded_buyer(client)
+    cid = client.post("/api/conversations").json()["id"]
+    empty = client.get("/api/dashboard/summary").json()
+    assert empty["conversation_count"] == 0
+    assert empty["execution_count"] == 0
+
+    client.post(f"/api/conversations/{cid}/messages", json={"content": "We need amoxicillin", "idempotency_key": "dashboard-clarify-01"})
+    clarification = client.get("/api/dashboard/summary").json()
+    assert clarification["conversation_count"] == 1
+    assert clarification["execution_count"] == 0
+    assert len(clarification["recent_decisions"]) == 1
+
+    client.post(f"/api/conversations/{cid}/messages", json={"content": "2,000 packs, 500 mg capsules, pack size 100, to Ghana within 21 days in USD", "idempotency_key": "dashboard-complete-01"})
+    completed = client.get("/api/dashboard/summary").json()
+    assert completed["conversation_count"] == 1
+    assert completed["execution_count"] == 1
+    assert completed["recommendation_count"] == 1
+    assert len(completed["recent_decisions"]) == 1
+
+
 def test_review_creation_and_idempotent_execution(client):
     cid = new_conversation(client); data={"content":"2,000 packs of amoxicillin 500 mg capsules, pack size 50, to Ghana within 21 days in USD", "idempotency_key":"review-001"}
     first=client.post(f"/api/conversations/{cid}/messages",json=data).json(); second=client.post(f"/api/conversations/{cid}/messages",json=data).json()
@@ -85,6 +122,8 @@ def test_idempotent_reviewer_action(client):
 def test_timeout_fails_safe_with_trace(client):
     login_admin(client)
     body=client.post("/api/dev/simulate-tool-timeout").json(); assert body["decision"]["status"]=="failed_safe"
+    assert body["decision"]["escalation_reasons"] == ["Supplier verification timed out before all eligibility checks completed."]
+    assert "ToolTimeoutError" not in body["decision"]["summary"]
     assert client.get(f"/api/traces/{body['decision']['trace_id']}").status_code==200
 
 
