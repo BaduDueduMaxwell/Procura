@@ -16,6 +16,7 @@ from app.domain.models import (
     AuthUser,
     Conversation,
     CustomerDashboardSummary,
+    DashboardDecision,
     HumanReviewCase,
     LoginRequest,
     MedicineCatalogItem,
@@ -103,6 +104,17 @@ def require_owner(resource_type: str, resource_id: str, user: AuthUser) -> None:
             raise HTTPException(404, "Resource not found")
 
 
+def execution_decision(row: ExecutionRow) -> DashboardDecision:
+    trace = TraceSummary.model_validate_json(row.trace_data)
+    result = AgentResponse.model_validate_json(row.response)
+    return DashboardDecision(
+        **trace.model_dump(),
+        medicine_name=result.request.medicine.medicine_name,
+        strength=result.request.medicine.strength,
+        dosage_form=result.request.medicine.dosage_form,
+    )
+
+
 @app.get("/health")
 def health(): return {"status": "ok", "provider": service.provider.name, "policy_version": "procura-policy-v1"}
 
@@ -166,12 +178,13 @@ def customer_dashboard(user: AuthUser = Depends(current_user)):
         evaluated = [row for row in requests if row.decision != "clarification"]
         review_cases = [HumanReviewCase.model_validate_json(row.data) for row in db.scalars(select(ReviewRow)).all()]
         review_count = sum(case.conversation_id in conversation_ids and case.status == "open" for case in review_cases)
+        recent_decisions = [execution_decision(row) for row in requests[:5]]
         return CustomerDashboardSummary(
             conversation_count=len(requests),
             execution_count=len(evaluated),
             recommendation_count=sum(row.decision == "recommended" for row in requests),
             review_count=review_count,
-            recent_decisions=[TraceSummary.model_validate_json(row.trace_data) for row in requests[:5]],
+            recent_decisions=recent_decisions,
         )
 
 
@@ -403,7 +416,7 @@ def execution(trace_id: str, user: AuthUser = Depends(current_user)):
 def operations(_: AuthUser = Depends(admin_user)):
     with SessionLocal() as db:
         rows = db.scalars(select(ExecutionRow).order_by(ExecutionRow.created_at.desc())).all()
-        traces = [TraceSummary.model_validate_json(r.trace_data) for r in rows[:8]]
+        traces = [execution_decision(row) for row in rows[:8]]
         latencies = sorted(r.latency_ms for r in rows)
         p50 = statistics.median(latencies) if len(latencies) >= 2 else None
         p95 = latencies[max(0, round(.95 * len(latencies)) - 1)] if len(latencies) >= 5 else None

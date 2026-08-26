@@ -189,6 +189,12 @@ class TraceSummary(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class DashboardDecision(TraceSummary):
+    medicine_name: str | None = None
+    strength: str | None = None
+    dosage_form: str | None = None
+
+
 class AgentResponse(BaseModel):
     conversation_id: str
     message: Message
@@ -222,7 +228,7 @@ class OperationsSummary(BaseModel):
     evaluation_pass_rate: float | None
     langfuse_status: str
     sentry_status: str
-    recent_traces: list[TraceSummary]
+    recent_traces: list[DashboardDecision]
 
 
 class AuthUser(BaseModel):
@@ -268,7 +274,7 @@ class CustomerDashboardSummary(BaseModel):
     execution_count: int
     recommendation_count: int
     review_count: int
-    recent_decisions: list[TraceSummary]
+    recent_decisions: list[DashboardDecision]
 
 
 class MedicineCatalogItem(BaseModel):

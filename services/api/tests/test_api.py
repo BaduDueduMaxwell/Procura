@@ -193,6 +193,9 @@ def test_customer_dashboard_ignores_empty_shells_and_counts_latest_request_state
     assert completed["execution_count"] == 1
     assert completed["recommendation_count"] == 1
     assert len(completed["recent_decisions"]) == 1
+    assert completed["recent_decisions"][0]["medicine_name"] == "amoxicillin"
+    assert completed["recent_decisions"][0]["strength"] == "500 mg"
+    assert completed["recent_decisions"][0]["dosage_form"] == "capsule"
 
 
 def test_review_creation_and_idempotent_execution(client):
@@ -222,6 +225,8 @@ def test_operations_are_measured(client):
     assert client.get("/api/operations/summary").json()["request_count"]==0
     test_health_and_happy_path(client)
     data=client.get("/api/operations/summary").json(); assert data["request_count"]==1 and data["p50_latency_ms"] is None
+    assert data["recent_traces"][0]["medicine_name"] == "amoxicillin"
+    assert data["recent_traces"][0]["strength"] == "500 mg"
 
 
 def test_operations_aggregate_measured_provider_tokens(client):

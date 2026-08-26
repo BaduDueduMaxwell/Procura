@@ -126,7 +126,7 @@ describe("guided product journey", () => {
   it("opens a buyer decision from the dashboard with its conversation and evidence", async () => {
     window.localStorage.setItem("procura-guide:buyer-decision", "seen");
     const createdAt = new Date().toISOString();
-    const trace = { trace_id:"trace-decision-1",conversation_id:"conversation-decision-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt };
+    const trace = { trace_id:"trace-decision-1",conversation_id:"conversation-decision-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt,medicine_name:"omeprazole",strength:"20 mg",dosage_form:"capsule" };
     const result: AgentResponse = { conversation_id:"conversation-decision-1",message:{id:"assistant-1",role:"assistant",content:"Northstar is recommended.",created_at:createdAt},progress_events:[],request:{id:"request-1",synthetic:true,medicine:{medicine_name:"omeprazole",strength:"20 mg",dosage_form:"capsule",quantity:600,pack_size:28,unit:"packs",cold_chain_required:false},destination:"Ghana",max_lead_time_days:18,currency:"USD"},quotes:[],decision:{status:"recommended",recommendation_supplier_id:"northstar",summary:"Northstar is recommended.",human_review_required:false,escalation_reasons:[],policy_version:"procura-policy-v1",trace_id:"trace-decision-1",no_transaction_completed:true} };
     vi.spyOn(api, "me").mockResolvedValueOnce({ id:"buyer-decision",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id:"empty-shell",messages:[] });
@@ -135,7 +135,8 @@ describe("guided product journey", () => {
     vi.spyOn(api, "conversation").mockResolvedValue({ id:"conversation-decision-1",messages:[{id:"user-1",role:"user",content:"We need omeprazole.",created_at:createdAt},result.message] });
 
     render(<Home />);
-    fireEvent.click(await screen.findByRole("button", { name:/open procurement review 1: recommended/i }));
+    expect(await screen.findByText("Omeprazole 20 mg")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name:/open omeprazole 20 mg decision 1: recommended/i }));
 
     expect(await screen.findByText("Northstar is recommended.")).toBeVisible();
     expect(screen.getByText("Request brief")).toBeVisible();
@@ -210,9 +211,10 @@ describe("guided product journey", () => {
   it("lets a supplier inspect active quotation evidence", async () => {
     window.localStorage.setItem("procura-guide:supplier-quotes", "seen");
     vi.spyOn(api, "me").mockResolvedValueOnce({ id:"supplier-quotes",email:"supplier@procura.example",display_name:"Supplier",organization:"Aster",role:"supplier",created_at:new Date().toISOString() });
-    vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"aster",display_name:"Aster",authorization:{status:"authorized",expiry_date:"2028-12-31"},capability:{destinations:["Ghana"],cold_chain:true},reliability_score:.9,quotes:[{id:"quote-1",currency:"USD",lead_time_days:13,line:{medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",pack_size:20,quantity_packs:4000,unit_price:.44}}]},quote_count:1,eligible_destination_count:1,compliance_state:"authorized",submissions:[] });
+    vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"aster",display_name:"Aster",authorization:{status:"authorized",expiry_date:"2028-12-31"},capability:{destinations:["Ghana"],cold_chain:true},reliability_score:.9,quotes:[{id:"quote-1",currency:"USD",lead_time_days:13,line:{medicine_name:"paracetamol",strength:"500 mg",dosage_form:"tablet",pack_size:20,quantity_packs:4000,unit_price:.44}}]},quote_count:1,eligible_destination_count:1,compliance_state:"authorized",submissions:[{id:"submission-quote-1",supplier_id:"aster",kind:"quote",payload:{medicine_name:"paracetamol",strength:"500 mg"},status:"pending",created_at:new Date().toISOString()}] });
     render(<Home />);
     expect(await screen.findByRole("button", { name:"View 1 active quotations" })).toBeVisible();
+    expect(screen.getByText("Paracetamol 500 mg")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name:"View details" }));
     expect(screen.getByText("Available capacity")).toBeVisible();
     expect(screen.getByText("4,000 packs")).toBeVisible();
@@ -229,10 +231,28 @@ describe("guided product journey", () => {
     const decide = vi.spyOn(api, "decideReview");
     render(<Home />);
     expect(await screen.findByText("Review brief")).toBeVisible();
+    expect(screen.getAllByText("Paracetamol 500 mg").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Suggested: request clarification")).toBeVisible();
     expect(screen.getByText(/reviewer must make the final decision/i)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name:/paracetamol/i }));
     expect(window.location.pathname).toBe("/reviews/review-1");
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it("identifies supplier quotation approvals by medicine and strength", async () => {
+    window.localStorage.setItem("procura-guide:supplier-review-name", "seen");
+    window.history.replaceState({}, "", "/reviews/suppliers");
+    const createdAt = new Date().toISOString();
+    const submission = { id:"supplier-review-1",supplier_id:"aster",kind:"quote" as const,payload:{medicine_name:"ceftriaxone",strength:"1 g",dosage_form:"vial"},status:"pending" as const,created_at:createdAt };
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"supplier-review-name",email:"reviewer@procura.example",display_name:"Reviewer",organization:"Procura",role:"reviewer",created_at:createdAt });
+    vi.spyOn(api, "supplierSubmissions").mockResolvedValue([submission]);
+    const decide = vi.spyOn(api, "decideSupplierSubmission");
+
+    render(<Home />);
+
+    expect((await screen.findAllByText("Ceftriaxone 1 g")).length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole("button", { name:/ceftriaxone 1 g pending/i }));
+    expect(window.location.pathname).toBe("/reviews/suppliers/supplier-review-1");
     expect(decide).not.toHaveBeenCalled();
   });
 
@@ -242,12 +262,12 @@ describe("guided product journey", () => {
     const createdAt = new Date().toISOString();
     vi.spyOn(api, "me").mockResolvedValueOnce({ id:"operations-trace",email:"operations@procura.example",display_name:"Operations",organization:"Procura",role:"admin",created_at:createdAt });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id:"operations-shell",messages:[] });
-    vi.spyOn(api, "operations").mockResolvedValue({ request_count:1,autonomous_recommendation_count:1,human_review_count:0,error_count:0,p50_latency_ms:4200,p95_latency_ms:4200,token_usage:730,evaluation_pass_rate:1,langfuse_status:"Langfuse not configured",sentry_status:"Sentry not configured",recent_traces:[{trace_id:"trace-operations-1",conversation_id:"conversation-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt}] });
+    vi.spyOn(api, "operations").mockResolvedValue({ request_count:1,autonomous_recommendation_count:1,human_review_count:0,error_count:0,p50_latency_ms:4200,p95_latency_ms:4200,token_usage:730,evaluation_pass_rate:1,langfuse_status:"Langfuse not configured",sentry_status:"Sentry not configured",recent_traces:[{trace_id:"trace-operations-1",conversation_id:"conversation-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt,medicine_name:"fluconazole",strength:"150 mg",dosage_form:"capsule"}] });
 
     render(<Home />);
-    fireEvent.click(await screen.findByRole("button", { name:"Open trace trace-op" }));
+    fireEvent.click(await screen.findByRole("button", { name:"Open Fluconazole 150 mg trace" }));
 
-    expect(screen.getByText("Trace evidence")).toBeVisible();
+    expect(screen.getAllByText("Fluconazole 150 mg").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("gemini · gemini-3.6-flash")).toBeVisible();
     expect(window.location.pathname).toBe("/operations/traces/trace-operations-1");
   });
