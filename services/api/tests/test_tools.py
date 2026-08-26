@@ -27,6 +27,25 @@ def test_normalization_and_missing_fields():
     assert "pack size" in ProcurementRequest(medicine=MedicineRequirement()).missing_fields()
 
 
+def test_normalization_maps_supported_destination_cities_to_countries():
+    assert request(destination="Accra").destination == "Ghana"
+    assert request(destination="nairobi").destination == "Kenya"
+
+
+def test_normalization_singularizes_supported_dosage_forms():
+    plural = request(
+        medicine=MedicineRequirement(
+            medicine_name="omeprazole",
+            strength="20 mg",
+            dosage_form="capsules",
+            quantity=600,
+            pack_size=28,
+        )
+    )
+
+    assert plural.medicine.dosage_form == "capsule"
+
+
 def test_authorization_expiry_and_missing():
     suppliers = synthetic_suppliers(); assert validate_supplier_authorization(suppliers[0], date(2026, 1, 1)).passed
     assert not validate_supplier_authorization(suppliers[2]).passed and "missing" in validate_supplier_authorization(suppliers[2]).detail.lower()

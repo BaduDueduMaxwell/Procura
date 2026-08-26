@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     llm_provider: str = "local"
     llm_model: str = "gpt-4.1-mini"
     llm_api_key: str | None = None
+    llm_timeout_seconds: int = 30
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"

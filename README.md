@@ -8,7 +8,7 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 
 - A polished responsive SaaS interface with a public landing page and stable routes for buyer, supplier, reviewer, and operations workspaces.
 - Secure account sessions using Argon2 password hashes, random HttpOnly cookies, role checks, origin validation, input limits, security headers, and generic login failures.
-- A typed provider boundary supporting a no-key local provider and an optional hosted provider.
+- A typed provider boundary supporting a no-key local provider plus Gemini and OpenAI hosted providers.
 - Deterministic Python tools own supplier search, authorization, destination, cold-chain, units, deadlines, currency, price anomalies, and ranking.
 - Unsafe outcomes create persistent human-review cases. Reviewer actions are idempotent, timestamped, and do not create transactions.
 - Supplier and quote records are loaded from the database at runtime; supplier-submitted changes require staff verification before becoming active evidence.
@@ -163,9 +163,10 @@ Copy `.env.example` to `.env`. `.env` and SQLite databases are ignored by Git.
 | Variable | Default | Purpose |
 |---|---|---|
 | `WEB_PORT` | `3001` | Browser port |
-| `LLM_PROVIDER` | `local` | `local` or configured hosted provider |
-| `LLM_MODEL` | local model label | Hosted model name |
-| `LLM_API_KEY` | empty | Hosted provider credential |
+| `LLM_PROVIDER` | `local` | `local`, `gemini`, or `openai` |
+| `LLM_MODEL` | local model label | Provider model ID, such as a Gemini Flash model available to your account |
+| `LLM_API_KEY` | empty | Hosted provider credential, stored only in the API environment |
+| `LLM_TIMEOUT_SECONDS` | `30` | Hosted-provider request deadline before safe escalation |
 | `DATABASE_URL` | SQLite | Application database |
 | `APP_ENV` | `development` | Disables development controls and local accounts in production |
 | `BOOTSTRAP_BUYER_*` | empty | Optional seeded buyer credentials |
@@ -177,6 +178,22 @@ Copy `.env.example` to `.env`. `.env` and SQLite databases are ignored by Git.
 | `NEXT_PUBLIC_SENTRY_DSN` | empty | Optional frontend monitoring |
 
 No credentials are committed. Missing Langfuse or Sentry credentials select no-op adapters, preserve local structured evidence, and are reported honestly in Operations.
+
+### Gemini
+
+Procura uses Google's official `google-genai` SDK for hosted Gemini execution. Gemini interprets the buyer's stated facts and makes one function call authorizing Procura's fixed deterministic evaluation sequence. Python still owns supplier search, authorization, destination, cold-chain, unit, deadline, price, and ranking decisions.
+
+Set the following in the API environment. Use a Gemini model ID that is enabled in your Google AI Studio project. Do not expose this key through a `NEXT_PUBLIC_` variable or commit it to Git.
+
+```text
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-3.6-flash
+LLM_API_KEY=<secret>
+```
+
+Invalid structured output is retried once. Provider or SDK failures create a safe human-review case with the shared trace ID. When Gemini returns usage metadata, Procura stores actual input and output token counts in the local trace and Operations summary. Cost remains unavailable unless a verifiable provider cost is recorded.
+
+The hosted integration was manually verified against `gemini-3.6-flash` on 26 August 2026. The checked workflow extracted an omeprazole request, normalized Accra to Ghana, authorized the fixed deterministic tool sequence, recommended the eligible Northstar quotation, recorded 990 input and 126 output tokens, and confirmed that no transaction was completed. Paid-provider evaluations remain opt-in and are not executed in pull-request CI.
 
 ## Security model
 

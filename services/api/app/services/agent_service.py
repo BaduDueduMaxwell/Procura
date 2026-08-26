@@ -1,7 +1,13 @@
 import time
 from uuid import uuid4
 
-from app.agent.providers import REQUIRED_TOOL_PLAN, DeterministicLLMProvider, OpenAIProvider
+from app.agent.providers import (
+    REQUIRED_TOOL_PLAN,
+    DeterministicLLMProvider,
+    GeminiProvider,
+    LLMProvider,
+    OpenAIProvider,
+)
 from app.config import Settings
 from app.domain.errors import InvalidModelOutputError, PersistenceError, ProviderUnavailableError, ToolTimeoutError
 from app.domain.models import (
@@ -29,6 +35,22 @@ from sqlalchemy import select
 PROGRESS = ["Request understood", "Checking supplier eligibility", "Comparing quotations", "Applying review policy", "Recommendation ready"]
 
 
+def build_provider(settings: Settings, policy: str) -> LLMProvider:
+    provider_name = settings.llm_provider.strip().lower()
+    if provider_name == "local":
+        return DeterministicLLMProvider()
+    if provider_name == "openai":
+        return OpenAIProvider(settings.llm_api_key or "", settings.llm_model, policy)
+    if provider_name == "gemini":
+        return GeminiProvider(
+            settings.llm_api_key or "",
+            settings.llm_model,
+            policy,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+    raise ValueError(f"Unsupported LLM provider: {provider_name}")
+
+
 def safe_failure_message(exc: Exception) -> tuple[str, str]:
     """Return an actionable summary and review reason without leaking internals."""
     if isinstance(exc, ToolTimeoutError):
@@ -47,7 +69,7 @@ def safe_failure_message(exc: Exception) -> tuple[str, str]:
 class AgentService:
     def __init__(self, settings: Settings, policy: str, observability: Observability):
         self.settings, self.policy, self.observability = settings, policy, observability
-        self.provider = DeterministicLLMProvider() if settings.llm_provider == "local" else OpenAIProvider(settings.llm_api_key or "", settings.llm_model, policy)
+        self.provider = build_provider(settings, policy)
 
     def create_conversation(self) -> Conversation:
         conversation = Conversation(id=str(uuid4()))
@@ -55,6 +77,9 @@ class AgentService:
             db.add(ConversationRow(id=conversation.id, data=conversation.model_dump_json()))
             db.commit()
         return conversation
+
+    async def close(self) -> None:
+        await self.provider.close()
 
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         with SessionLocal() as db:
@@ -72,6 +97,7 @@ class AgentService:
         conversation.messages.append(Message(role="user", content=content))
         quotes, tool_sequence, review_reasons = [], [], []
         request = conversation.draft or ProcurementRequest(medicine={})
+        self.provider.begin_execution()
         try:
             if simulate_timeout: raise ToolTimeoutError("Supplier verification exceeded its safe deadline")
             request = normalize_procurement_request(await self.provider.extract(content, conversation.draft))
@@ -134,8 +160,34 @@ class AgentService:
             tool_sequence.append("create_human_review_case")
         model = self.settings.llm_model if self.provider.name != "local" else "procura-local-v1"
         scores = {"schema_valid": 1, "policy_compliant": 1, "unsupported_claim_count": 0}
-        exported = self.observability.export_execution(trace_id=trace_id, conversation_id=conversation_id, model=model, tool_sequence=tool_sequence, decision=decision.status, review_required=decision.human_review_required, scores=scores)
-        trace = TraceSummary(trace_id=trace_id, conversation_id=conversation_id, latency_ms=latency, model=model, provider=self.provider.name, decision=decision.status, review_required=decision.human_review_required, policy_version=decision.policy_version, exported_to_langfuse=exported, tool_sequence=tool_sequence, scores=scores)
+        usage = self.provider.usage
+        exported = self.observability.export_execution(
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            model=model,
+            provider=self.provider.name,
+            token_input=usage.input_tokens or None,
+            token_output=usage.output_tokens or None,
+            tool_sequence=tool_sequence,
+            decision=decision.status,
+            review_required=decision.human_review_required,
+            scores=scores,
+        )
+        trace = TraceSummary(
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            latency_ms=latency,
+            model=model,
+            provider=self.provider.name,
+            decision=decision.status,
+            review_required=decision.human_review_required,
+            policy_version=decision.policy_version,
+            token_input=usage.input_tokens or None,
+            token_output=usage.output_tokens or None,
+            exported_to_langfuse=exported,
+            tool_sequence=tool_sequence,
+            scores=scores,
+        )
         with SessionLocal() as db:
             row = db.get(ConversationRow, conversation_id)
             row.data = conversation.model_dump_json()

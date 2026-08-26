@@ -1,6 +1,52 @@
+from types import SimpleNamespace
+
 import pytest
-from app.agent.providers import DeterministicLLMProvider
+from app.agent.providers import (
+    REQUIRED_TOOL_PLAN,
+    DeterministicLLMProvider,
+    GeminiProvider,
+    ProcurementExtraction,
+)
+from app.config import Settings
+from app.domain.errors import InvalidModelOutputError, ProviderUnavailableError
+from app.domain.models import ProcurementRequest
 from app.observability.adapters import sanitize
+from app.services.agent_service import build_provider
+
+
+class FakeGeminiChat:
+    def __init__(self, responses):
+        self.responses = responses
+
+    async def send_message(self, message):
+        return self.responses.pop(0)
+
+
+class FakeGeminiChats:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return FakeGeminiChat(self.responses)
+
+
+class FakeGeminiClient:
+    def __init__(self, responses):
+        self.chats = FakeGeminiChats(responses)
+
+
+def gemini_response(*, parsed=None, text=None, calls=None, input_tokens=0, output_tokens=0):
+    return SimpleNamespace(
+        parsed=parsed,
+        text=text,
+        function_calls=calls or [],
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=input_tokens,
+            candidates_token_count=output_tokens,
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -25,6 +71,137 @@ async def test_demo_provider_is_predictable():
 async def test_local_provider_extracts_multiple_medicines(text, medicine, strength, form):
     request = await DeterministicLLMProvider().extract(text)
     assert (request.medicine.medicine_name, request.medicine.strength, request.medicine.dosage_form) == (medicine, strength, form)
+
+
+@pytest.mark.asyncio
+async def test_gemini_provider_extracts_structured_facts_and_records_usage():
+    response = gemini_response(
+        parsed=ProcurementExtraction(
+            medicine_name="omeprazole",
+            strength="20 mg",
+            dosage_form="capsule",
+            quantity=600,
+            pack_size=28,
+            destination="Ghana",
+            max_lead_time_days=18,
+            currency="USD",
+        ),
+        input_tokens=240,
+        output_tokens=80,
+    )
+    client = FakeGeminiClient([response])
+    provider = GeminiProvider("unused", "gemini-test", "policy", client=client)
+    provider.begin_execution()
+
+    request = await provider.extract("600 packs of omeprazole 20 mg capsules, pack size 28, to Ghana within 18 days in USD")
+
+    assert request.medicine.medicine_name == "omeprazole"
+    assert request.medicine.quantity == 600
+    assert request.destination == "Ghana"
+    assert provider.usage.input_tokens == 240
+    assert provider.usage.output_tokens == 80
+    config = client.chats.calls[0]["config"]
+    assert config.response_schema is ProcurementExtraction
+    assert config.temperature == 0
+
+
+def test_gemini_extraction_schema_uses_only_supported_integer_keywords():
+    schema = ProcurementExtraction.model_json_schema()
+
+    for field in ("quantity", "pack_size", "max_lead_time_days"):
+        variants = schema["properties"][field]["anyOf"]
+        integer_schema = next(variant for variant in variants if variant.get("type") == "integer")
+        assert "exclusiveMinimum" not in integer_schema
+
+
+@pytest.mark.asyncio
+async def test_gemini_provider_merges_one_field_follow_up_without_inventing_others():
+    previous = ProcurementRequest.model_validate(
+        {
+            "medicine": {"medicine_name": "omeprazole", "strength": "20 mg"},
+            "destination": "Ghana",
+        }
+    )
+    provider = GeminiProvider(
+        "unused",
+        "gemini-test",
+        "policy",
+        client=FakeGeminiClient([gemini_response(parsed=ProcurementExtraction(quantity=600))]),
+    )
+
+    request = await provider.extract("600 packs", previous)
+
+    assert request.medicine.medicine_name == "omeprazole"
+    assert request.medicine.strength == "20 mg"
+    assert request.medicine.quantity == 600
+    assert request.destination == "Ghana"
+
+
+@pytest.mark.asyncio
+async def test_gemini_invalid_structured_output_retries_once_then_fails_safe():
+    client = FakeGeminiClient(
+        [
+            gemini_response(text="not-json", input_tokens=10),
+            gemini_response(text="still-not-json", input_tokens=11),
+        ]
+    )
+    provider = GeminiProvider("unused", "gemini-test", "policy", client=client)
+
+    with pytest.raises(InvalidModelOutputError, match="after one retry"):
+        await provider.extract("incomplete request")
+
+    assert len(client.chats.calls) == 2
+    assert provider.usage.input_tokens == 21
+
+
+@pytest.mark.asyncio
+async def test_gemini_requires_a_key_without_exposing_it():
+    provider = GeminiProvider("", "gemini-test", "policy")
+
+    with pytest.raises(ProviderUnavailableError, match="not configured"):
+        await provider.extract("request")
+
+
+@pytest.mark.asyncio
+async def test_gemini_function_call_authorizes_only_the_fixed_tool_plan():
+    request = ProcurementRequest(medicine={})
+    call = SimpleNamespace(name="authorize_procurement_evaluation", args={"request_id": request.id})
+    client = FakeGeminiClient([gemini_response(calls=[call], input_tokens=30, output_tokens=8)])
+    provider = GeminiProvider("unused", "gemini-test", "policy", client=client)
+
+    selected = await provider.select_tools(request)
+
+    assert selected == REQUIRED_TOOL_PLAN
+    assert provider.usage == provider.usage.__class__(input_tokens=30, output_tokens=8)
+    config = client.chats.calls[0]["config"]
+    assert config.automatic_function_calling is None
+
+
+@pytest.mark.asyncio
+async def test_gemini_rejects_an_unexpected_function_call_after_one_retry():
+    wrong = SimpleNamespace(name="place_order", args={})
+    client = FakeGeminiClient([gemini_response(calls=[wrong]), gemini_response(calls=[wrong])])
+    provider = GeminiProvider("unused", "gemini-test", "policy", client=client)
+
+    with pytest.raises(InvalidModelOutputError, match="safe tool sequence"):
+        await provider.select_tools(ProcurementRequest(medicine={}))
+
+    assert len(client.chats.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_provider_selection_accepts_case_insensitive_gemini_configuration():
+    settings = Settings(
+        _env_file=None,
+        llm_provider="Gemini",
+        llm_model="gemini-test",
+        llm_api_key="test-key",
+    )
+
+    provider = build_provider(settings, "policy")
+
+    assert isinstance(provider, GeminiProvider)
+    await provider.client.aclose()
 
 
 def test_redaction():

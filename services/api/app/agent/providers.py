@@ -1,16 +1,67 @@
 import json
 import re
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from app.domain.errors import InvalidModelOutputError, ProviderUnavailableError
 from app.domain.models import ProcurementRequest
 from app.services.catalog_terms import CATALOG_MEDICINES
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 from openai import AsyncOpenAI
+from pydantic import BaseModel, ValidationError
+
+
+@dataclass(frozen=True)
+class ProviderUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class ProcurementExtraction(BaseModel):
+    """Facts interpreted from one user turn. Missing values remain null."""
+
+    medicine_name: str | None = None
+    strength: str | None = None
+    dosage_form: str | None = None
+    quantity: int | None = None
+    pack_size: int | None = None
+    unit: str | None = None
+    cold_chain_required: bool | None = None
+    destination: str | None = None
+    required_delivery_date: date | None = None
+    max_lead_time_days: int | None = None
+    currency: str | None = None
 
 
 class LLMProvider(ABC):
     name: str
+
+    def __init__(self) -> None:
+        self._usage: ContextVar[ProviderUsage | None] = ContextVar(f"{self.name}_provider_usage", default=None)
+
+    def begin_execution(self) -> None:
+        self._usage.set(ProviderUsage())
+
+    def record_usage(self, input_tokens: int | None, output_tokens: int | None) -> None:
+        current = self._usage.get() or ProviderUsage()
+        self._usage.set(
+            ProviderUsage(
+                input_tokens=current.input_tokens + max(input_tokens or 0, 0),
+                output_tokens=current.output_tokens + max(output_tokens or 0, 0),
+            )
+        )
+
+    @property
+    def usage(self) -> ProviderUsage:
+        return self._usage.get() or ProviderUsage()
+
+    async def close(self) -> None:
+        return None
 
     @abstractmethod
     async def extract(self, text: str, previous: ProcurementRequest | None = None) -> ProcurementRequest: ...
@@ -37,7 +88,7 @@ def _merge(previous: ProcurementRequest | None, values: dict[str, Any]) -> Procu
     for key in ("medicine_name", "strength", "dosage_form", "quantity", "pack_size", "unit", "cold_chain_required"):
         if values.get(key) is not None:
             med[key] = values[key]
-    for key in ("destination", "max_lead_time_days", "currency", "buyer_notes"):
+    for key in ("destination", "required_delivery_date", "max_lead_time_days", "currency", "buyer_notes"):
         if values.get(key) is not None:
             base[key] = values[key]
     base.pop("id", None)
@@ -81,6 +132,7 @@ class OpenAIProvider(LLMProvider):
     name = "openai"
 
     def __init__(self, api_key: str, model: str, policy: str):
+        super().__init__()
         self.client, self.model, self.policy = AsyncOpenAI(api_key=api_key), model, policy
 
     async def extract(self, text: str, previous: ProcurementRequest | None = None) -> ProcurementRequest:
@@ -89,6 +141,7 @@ class OpenAIProvider(LLMProvider):
         for attempt in range(2):
             try:
                 result = await self.client.responses.create(model=self.model, instructions=prompt, input=text, text={"format": {"type": "json_schema", "name": "procurement_request", "schema": schema, "strict": True}})
+                self.record_usage(getattr(result.usage, "input_tokens", None), getattr(result.usage, "output_tokens", None))
                 return ProcurementRequest.model_validate(json.loads(result.output_text))
             except Exception as exc:
                 if attempt == 1:
@@ -98,7 +151,139 @@ class OpenAIProvider(LLMProvider):
     async def select_tools(self, request: ProcurementRequest) -> list[str]:
         tools = [{"type": "function", "name": name, "description": f"Required deterministic procurement step: {name}", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}, "strict": True} for name in REQUIRED_TOOL_PLAN]
         result = await self.client.responses.create(model=self.model, input=f"Select every deterministic tool required to evaluate this complete request: {request.model_dump_json()}", tools=tools, tool_choice="required", parallel_tool_calls=False)
+        self.record_usage(getattr(result.usage, "input_tokens", None), getattr(result.usage, "output_tokens", None))
         selected = [item.name for item in result.output if getattr(item, "type", None) == "function_call"]
         if selected != REQUIRED_TOOL_PLAN:
             raise InvalidModelOutputError("Hosted provider did not return the required safe tool sequence")
         return selected
+
+    async def close(self) -> None:
+        await self.client.close()
+
+
+class GeminiProvider(LLMProvider):
+    """Gemini interprets intent and authorizes, but never executes, business tools."""
+
+    name = "gemini"
+    _evaluation_function = "authorize_procurement_evaluation"
+
+    def __init__(self, api_key: str, model: str, policy: str, client: Any | None = None, timeout_seconds: int = 30):
+        super().__init__()
+        self.model = model
+        self.policy = policy
+        self.client = client if client is not None else (
+            genai.Client(
+                api_key=api_key,
+                http_options=genai_types.HttpOptions(timeout=max(timeout_seconds, 1) * 1000),
+            ).aio
+            if api_key
+            else None
+        )
+
+    def _require_client(self) -> Any:
+        if self.client is None:
+            raise ProviderUnavailableError("Gemini is selected but its API key is not configured")
+        return self.client
+
+    def _record_response_usage(self, response: Any) -> None:
+        usage = getattr(response, "usage_metadata", None)
+        self.record_usage(
+            getattr(usage, "prompt_token_count", None),
+            getattr(usage, "candidates_token_count", None),
+        )
+
+    async def _generate(self, contents: str, config: genai_types.GenerateContentConfig) -> Any:
+        chat = self._require_client().chats.create(model=self.model, config=config)
+        return await chat.send_message(contents)
+
+    async def extract(self, text: str, previous: ProcurementRequest | None = None) -> ProcurementRequest:
+        self._require_client()
+        previous_context = previous.model_dump_json() if previous else "none"
+        instruction = (
+            f"{self.policy}\n\n"
+            "You interpret buyer intent only. Extract facts explicitly stated in the current message. "
+            "Do not infer missing medicine, strength, form, quantity, pack size, destination, delivery, currency, "
+            "supplier, price, inventory, authorization, or compliance facts. Return null for facts not stated in "
+            "the current message. The application merges this extraction with the previous draft deterministically. "
+            f"Previous draft for conversational context only: {previous_context}"
+        )
+        for attempt in range(2):
+            try:
+                response = await self._generate(
+                    text,
+                    genai_types.GenerateContentConfig(
+                        system_instruction=instruction,
+                        temperature=0,
+                        response_mime_type="application/json",
+                        response_schema=ProcurementExtraction,
+                    ),
+                )
+                self._record_response_usage(response)
+            except genai_errors.APIError as exc:
+                raise ProviderUnavailableError("Gemini request failed") from exc
+            except Exception as exc:  # transport and SDK failures are availability failures
+                raise ProviderUnavailableError("Gemini request failed") from exc
+            try:
+                parsed = response.parsed
+                extraction = parsed if isinstance(parsed, ProcurementExtraction) else ProcurementExtraction.model_validate(parsed or json.loads(response.text))
+                values = extraction.model_dump()
+                values["buyer_notes"] = text[:500]
+                return _merge(previous, values)
+            except (ValidationError, json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+                if attempt == 1:
+                    raise InvalidModelOutputError("Gemini returned invalid structured output after one retry") from exc
+        raise InvalidModelOutputError("Unreachable")
+
+    async def select_tools(self, request: ProcurementRequest) -> list[str]:
+        self._require_client()
+        declaration = genai_types.FunctionDeclaration(
+            name=self._evaluation_function,
+            description=(
+                "Authorize Procura to run its fixed deterministic supplier search, price comparison, authorization, "
+                "destination, cold-chain, unit, deadline, and ranking checks. This function does not place an order."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {"request_id": {"type": "string", "description": "The supplied procurement request ID"}},
+                "required": ["request_id"],
+                "additionalProperties": False,
+            },
+        )
+        tool = genai_types.Tool(function_declarations=[declaration])
+        for attempt in range(2):
+            try:
+                response = await self._generate(
+                    (
+                        "Authorize the fixed deterministic evaluation for this complete procurement request. "
+                        "Do not calculate prices or make supplier claims. "
+                        f"Request ID: {request.id}"
+                    ),
+                    genai_types.GenerateContentConfig(
+                        system_instruction=self.policy,
+                        temperature=0,
+                        tools=[tool],
+                        tool_config=genai_types.ToolConfig(
+                            function_calling_config=genai_types.FunctionCallingConfig(mode="ANY")
+                        ),
+                    ),
+                )
+                self._record_response_usage(response)
+            except genai_errors.APIError as exc:
+                raise ProviderUnavailableError("Gemini tool-selection request failed") from exc
+            except Exception as exc:
+                raise ProviderUnavailableError("Gemini tool-selection request failed") from exc
+            calls = response.function_calls or []
+            valid = (
+                len(calls) == 1
+                and calls[0].name == self._evaluation_function
+                and dict(calls[0].args or {}).get("request_id") == request.id
+            )
+            if valid:
+                return REQUIRED_TOOL_PLAN.copy()
+            if attempt == 1:
+                raise InvalidModelOutputError("Gemini did not authorize the required safe tool sequence after one retry")
+        raise InvalidModelOutputError("Unreachable")
+
+    async def close(self) -> None:
+        if self.client is not None:
+            await self.client.aclose()

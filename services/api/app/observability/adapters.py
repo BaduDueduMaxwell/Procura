@@ -37,7 +37,7 @@ class Observability:
                 for key, value in tags.items(): scope.set_tag(key, sanitize(value))
                 sentry_sdk.capture_exception(exc)
 
-    def export_execution(self, *, trace_id: str, conversation_id: str, model: str, tool_sequence: list[str], decision: str, review_required: bool, scores: dict[str, float]) -> bool:
+    def export_execution(self, *, trace_id: str, conversation_id: str, model: str, provider: str, token_input: int | None, token_output: int | None, tool_sequence: list[str], decision: str, review_required: bool, scores: dict[str, float]) -> bool:
         """Export bounded metadata only. Raw user and supplier text is excluded."""
         if not self.langfuse:
             return False
@@ -48,7 +48,7 @@ class Observability:
                 as_type="agent",
                 input={"conversation_id": conversation_id, "synthetic": True},
                 output={"decision": decision, "review_required": review_required},
-                metadata={"local_trace_id": trace_id, "policy_version": "procura-policy-v1", "prompt_version": "procura-agent-v1", "model": model},
+                metadata={"local_trace_id": trace_id, "policy_version": "procura-policy-v1", "prompt_version": "procura-agent-v1", "model": model, "provider": provider, "token_input": token_input, "token_output": token_output},
                 version="procura-policy-v1",
             ):
                 for tool_name in tool_sequence:

@@ -73,7 +73,10 @@ async def lifespan(_: FastAPI):
     init_db()
     seed_supplier_database()
     seed_local_accounts(settings)
-    yield
+    try:
+        yield
+    finally:
+        await service.close()
 
 app = FastAPI(title="Procura API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=[settings.web_origin], allow_credentials=True, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Idempotency-Key"])
@@ -393,9 +396,16 @@ def operations(_: AuthUser = Depends(admin_user)):
         latencies = sorted(r.latency_ms for r in rows)
         p50 = statistics.median(latencies) if len(latencies) >= 2 else None
         p95 = latencies[max(0, round(.95 * len(latencies)) - 1)] if len(latencies) >= 5 else None
+        all_traces = [TraceSummary.model_validate_json(r.trace_data) for r in rows]
+        measured_tokens = [
+            (trace.token_input or 0) + (trace.token_output or 0)
+            for trace in all_traces
+            if trace.token_input is not None or trace.token_output is not None
+        ]
+        measured_costs = [trace.estimated_cost_usd for trace in all_traces if trace.estimated_cost_usd is not None]
         eval_path = Path(__file__).parents[1] / "evals" / "results" / "latest.json"
         eval_rate = json.loads(eval_path.read_text()).get("pass_rate") if eval_path.exists() else None
-        return OperationsSummary(request_count=len(rows), autonomous_recommendation_count=sum(r.decision == "recommended" for r in rows), human_review_count=sum(r.decision in ("review_required", "failed_safe") for r in rows), error_count=sum(r.decision == "failed_safe" for r in rows), p50_latency_ms=p50, p95_latency_ms=p95, token_usage=None, estimated_cost_usd=None, evaluation_pass_rate=eval_rate, langfuse_status="Configured" if observability.langfuse_enabled else "Langfuse not configured", sentry_status="Configured" if observability.sentry_enabled else "Sentry not configured", recent_traces=traces)
+        return OperationsSummary(request_count=len(rows), autonomous_recommendation_count=sum(r.decision == "recommended" for r in rows), human_review_count=sum(r.decision in ("review_required", "failed_safe") for r in rows), error_count=sum(r.decision == "failed_safe" for r in rows), p50_latency_ms=p50, p95_latency_ms=p95, token_usage=sum(measured_tokens) if measured_tokens else None, estimated_cost_usd=round(sum(measured_costs), 6) if measured_costs else None, evaluation_pass_rate=eval_rate, langfuse_status="Configured" if observability.langfuse_enabled else "Langfuse not configured", sentry_status="Configured" if observability.sentry_enabled else "Sentry not configured", recent_traces=traces)
 
 
 @app.post("/api/dev/simulate-tool-timeout")

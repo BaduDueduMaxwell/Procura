@@ -17,8 +17,26 @@ def normalize_procurement_request(request: ProcurementRequest) -> ProcurementReq
     med = data["medicine"]
     for key in ("medicine_name", "strength", "dosage_form"):
         if med.get(key): med[key] = " ".join(med[key].strip().lower().split())
+    dosage_forms = {
+        "tablets": "tablet",
+        "capsules": "capsule",
+        "vials": "vial",
+        "bottles": "bottle",
+        "sachets": "sachet",
+        "ampoules": "ampoule",
+    }
+    if med.get("dosage_form"):
+        med["dosage_form"] = dosage_forms.get(med["dosage_form"], med["dosage_form"])
     if data.get("currency"): data["currency"] = data["currency"].upper()
-    if data.get("destination"): data["destination"] = data["destination"].strip().title()
+    if data.get("destination"):
+        destination = data["destination"].strip().title()
+        destination_countries = {
+            "Accra": "Ghana",
+            "Nairobi": "Kenya",
+            "Kampala": "Uganda",
+            "Lagos": "Nigeria",
+        }
+        data["destination"] = destination_countries.get(destination, destination)
     return ProcurementRequest.model_validate(data)
 
 

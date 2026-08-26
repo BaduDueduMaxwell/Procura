@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from app.agent.providers import DeterministicLLMProvider, GeminiProvider
+from app.main import service
 from app.models.database import ResourceOwnerRow, SessionLocal
 from sqlalchemy import select
 
@@ -132,6 +134,49 @@ def test_operations_are_measured(client):
     assert client.get("/api/operations/summary").json()["request_count"]==0
     test_health_and_happy_path(client)
     data=client.get("/api/operations/summary").json(); assert data["request_count"]==1 and data["p50_latency_ms"] is None
+
+
+def test_operations_aggregate_measured_provider_tokens(client):
+    class MeasuredProvider(DeterministicLLMProvider):
+        async def extract(self, text, previous=None):
+            request = await super().extract(text, previous)
+            self.record_usage(320, 90)
+            return request
+
+    original_provider = service.provider
+    service.provider = MeasuredProvider()
+    try:
+        test_health_and_happy_path(client)
+    finally:
+        service.provider = original_provider
+
+    login_admin(client)
+    summary = client.get("/api/operations/summary").json()
+    assert summary["token_usage"] == 410
+    assert summary["estimated_cost_usd"] is None
+
+
+def test_unavailable_gemini_fails_safe_and_creates_review(client):
+    original_provider = service.provider
+    service.provider = GeminiProvider("", "gemini-test", "policy")
+    try:
+        conversation_id = new_conversation(client)
+        response = client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            json={"content": "We need omeprazole", "idempotency_key": "gemini-unavailable-01"},
+        )
+    finally:
+        service.provider = original_provider
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"]["status"] == "failed_safe"
+    assert body["decision"]["human_review_required"] is True
+    assert body["decision"]["escalation_reasons"] == [
+        "The request could not be interpreted reliably because the language provider was unavailable."
+    ]
+    login_reviewer(client)
+    assert len(client.get("/api/reviews").json()) == 1
 
 
 def test_signup_session_logout_and_role_boundary(client):
