@@ -49,3 +49,8 @@ html{scroll-behavior:smooth}.landing-nav{animation:landing-fade .55s ease-out bo
 /* Supplier quotations stay compact until the supplier requests full evidence. */
 .supplier-quote{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center}.supplier-quote-details{grid-column:1/4}.supplier-quote-details>button{justify-self:start}
 @media(max-width:600px){.supplier-quote{grid-template-columns:1fr}.supplier-quote-details{grid-column:1}}
+
+/* The medicine catalogue opens on intent and scrolls inside a bounded panel. */
+.catalog-panel.is-open{border-color:#aebdb7;box-shadow:0 10px 30px rgba(34,45,41,.08)}.catalog-popover{margin-top:10px;border-top:1px solid var(--line);background:var(--paper)}.catalog-popover .catalog-results{max-height:300px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.catalog-popover .catalog-results:focus-within{outline:2px solid rgba(13,101,90,.18);outline-offset:-2px}
+.catalog-results article[role=option]{cursor:pointer}.catalog-results article[role=option]:hover,.catalog-results article[role=option]:focus-visible{background:var(--teal-soft);outline:0}.catalog-result-action{color:var(--teal);font-size:9px;font-weight:700;display:flex;align-items:center;gap:5px;white-space:nowrap}
+@media(max-width:700px){.catalog-popover .catalog-results{max-height:250px}}

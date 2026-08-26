@@ -195,6 +195,7 @@ def test_buyer_catalog_search_is_server_side_and_bounded(client):
     assert len(catalog) == 1
     assert catalog[0]["medicine_name"] == "paracetamol"
     assert client.get("/api/catalog/medicines?limit=1000").status_code == 422
+    assert len(client.get("/api/catalog/medicines?limit=20").json()) == 20
 
 
 def test_all_twenty_seeded_medicines_are_searchable(client):

@@ -4,7 +4,7 @@ Feature: Buyers discover medicine availability from approved database evidence
     Given approved supplier quotations exist for 20 searchable medicines
     When the buyer searches the medicine catalogue
     Then Procura groups matching medicine variants by strength, dosage form, and pack size
-    And it returns a bounded result set instead of every medicine record
+    And it returns no more than twenty variants for the scrollable search panel
     And it reports quotation coverage, verified suppliers, capacity, delivery, currency, and destination evidence
 
   Scenario: A buyer starts a conversational request from a catalogue item

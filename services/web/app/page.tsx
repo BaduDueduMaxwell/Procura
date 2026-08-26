@@ -158,14 +158,17 @@ function Nav({ screen, setScreen, onNew, onGuide, user, onLogout }: { screen: Sc
 function EmptyState({ onExample, onCatalogItem }: { onExample: (s: string) => void; onCatalogItem: (s: string) => void }) {
   const [catalog, setCatalog] = useState<MedicineCatalogItem[]>([]);
   const [query, setQuery] = useState("");
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogError, setCatalogError] = useState(false);
-  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const searchSequence = useRef(0);
+  const catalogRef = useRef<HTMLElement>(null);
   useEffect(() => {
+    if (!catalogOpen) return;
     const sequence = ++searchSequence.current;
     const timer = window.setTimeout(() => {
       setCatalogLoading(true); setCatalogError(false);
-      api.medicineCatalog(query.trim(), 6).then(items => {
+      api.medicineCatalog(query.trim(), 20).then(items => {
         if (sequence === searchSequence.current) setCatalog(items);
       }).catch(() => {
         if (sequence === searchSequence.current) setCatalogError(true);
@@ -174,18 +177,26 @@ function EmptyState({ onExample, onCatalogItem }: { onExample: (s: string) => vo
       });
     }, query ? 220 : 0);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, catalogOpen]);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (catalogRef.current && !catalogRef.current.contains(event.target as Node)) setCatalogOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+  const chooseCatalogItem = (starter: string) => { setCatalogOpen(false); onCatalogItem(starter); };
   return <div className="empty-state catalog-empty">
     <div className="workspace-intro"><span>Start a request</span><h2>Find current supplier coverage</h2><p>Search by medicine, strength, or dosage form. You can also write any procurement need directly below.</p></div>
-    <section className="catalog-panel" data-tour="catalog" aria-labelledby="catalog-heading">
-      <div className="catalog-head"><div><span>Medicine search</span><h3 id="catalog-heading">Choose a product variant</h3></div><small>Up to 6 results</small></div>
-      <label className="catalog-search"><Search size={18}/><span className="sr-only">Search available medicines</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Try paracetamol, 500 mg, or vial" autoComplete="off"/></label>
-      <div className="catalog-status" role="status">{catalogLoading ? "Searching current quotations…" : query ? `${catalog.length} matching variant${catalog.length === 1 ? "" : "s"}` : "Examples from current quotations"}<span>Keep typing to narrow the six-result list.</span></div>
-      {catalogError ? <p className="catalog-message" role="alert">Medicine availability could not be loaded. You can still describe the request below.</p> : !catalogLoading && catalog.length === 0 ? <p className="catalog-message">No active quotation matches this search. You can still type the medicine into your request.</p> : <div className="catalog-results">{catalog.map(item => <article key={`${item.medicine_name}-${item.strength}-${item.dosage_form}-${item.pack_size}`}>
+    <section className={`catalog-panel ${catalogOpen ? "is-open" : ""}`} data-tour="catalog" aria-labelledby="catalog-heading" ref={catalogRef}>
+      <div className="catalog-head"><div><span>Medicine search</span><h3 id="catalog-heading">Choose a product variant</h3></div><small>{catalogOpen ? "Scroll or type to filter" : "Select search to browse"}</small></div>
+      <label className="catalog-search"><Search size={18}/><span className="sr-only">Search available medicines</span><input type="search" role="combobox" aria-expanded={catalogOpen} aria-controls="medicine-search-results" aria-autocomplete="list" value={query} onFocus={() => setCatalogOpen(true)} onClick={() => setCatalogOpen(true)} onChange={event => { setQuery(event.target.value); setCatalogOpen(true); }} onKeyDown={event => { if (event.key === "Escape") { setCatalogOpen(false); event.currentTarget.blur(); } }} placeholder="Search medicine, strength, or form" autoComplete="off"/></label>
+      {catalogOpen && <div className="catalog-popover" id="medicine-search-results" role="listbox" aria-label="Medicine search results"><div className="catalog-status" role="status">{catalogLoading ? "Searching current quotations…" : query ? `${catalog.length} matching variant${catalog.length === 1 ? "" : "s"}` : `${catalog.length} available variants`}<span>Scroll for more results.</span></div>
+      {catalogError ? <p className="catalog-message" role="alert">Medicine availability could not be loaded. You can still describe the request below.</p> : !catalogLoading && catalog.length === 0 ? <p className="catalog-message">No active quotation matches this search. You can still type the medicine into your request.</p> : <div className="catalog-results">{catalog.map(item => <article role="option" aria-selected="false" tabIndex={0} onClick={() => chooseCatalogItem(item.request_starter)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseCatalogItem(item.request_starter); } }} key={`${item.medicine_name}-${item.strength}-${item.dosage_form}-${item.pack_size}`}>
         <div className="catalog-result-name"><strong>{item.medicine_name}</strong><span>{item.strength} · {item.dosage_form} · pack {item.pack_size}</span></div>
         <div className={`catalog-result-evidence ${item.authorized_supplier_count === 0 ? "needs-review" : ""}`}><span>{item.authorized_supplier_count === 0 ? "No verified supplier" : `${item.authorized_supplier_count} verified supplier${item.authorized_supplier_count === 1 ? "" : "s"}`}</span><span>{item.quotation_count} quotation{item.quotation_count === 1 ? "" : "s"}</span><span>{item.minimum_lead_time_days} day fastest</span></div>
-        <button onClick={() => onCatalogItem(item.request_starter)} aria-label={`Use ${item.medicine_name} ${item.strength} in request`}>Use in request<ArrowRight size={14}/></button>
-      </article>)}</div>}
+        <span className="catalog-result-action">Use in request<ArrowRight size={14}/></span>
+      </article>)}</div>}</div>}
     </section>
     <div className="examples compact-examples"><span>Complete examples</span>{examples.map((example, i) => <button key={example} onClick={() => onExample(example)}><span>0{i + 1}</span>{i === 0 ? "Paracetamol" : i === 1 ? "Cold-chain insulin" : "Needs clarification"}<Send size={13} /></button>)}</div>
   </div>;

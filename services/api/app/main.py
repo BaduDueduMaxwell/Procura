@@ -175,7 +175,7 @@ def customer_dashboard(user: AuthUser = Depends(current_user)):
 @app.get("/api/catalog/medicines", response_model=list[MedicineCatalogItem])
 def medicine_catalog(
     q: str = Query(default="", max_length=120),
-    limit: int = Query(default=6, ge=1, le=12),
+    limit: int = Query(default=6, ge=1, le=20),
     user: AuthUser = Depends(current_user),
 ):
     if user.role not in {"buyer", "admin"}:
