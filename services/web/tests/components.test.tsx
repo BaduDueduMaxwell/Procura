@@ -108,6 +108,28 @@ describe("guided product journey", () => {
     expect(await screen.findByText("New request ready")).toBeVisible();
   });
 
+  it("clears a buyer request only after the API accepts it", async () => {
+    window.localStorage.setItem("procura-guide:buyer-input-reset", "seen");
+    window.history.replaceState({}, "", "/workspace");
+    const createdAt = new Date().toISOString();
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"buyer-input-reset",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt });
+    vi.spyOn(api, "createConversation").mockResolvedValue({ id:"conversation-input-reset",messages:[] });
+    const result: AgentResponse = { conversation_id:"conversation-input-reset",message:{id:"assistant-input-reset",role:"assistant",content:"What quantity should I use?",created_at:createdAt},progress_events:["Request understood"],request:{id:"request-input-reset",synthetic:true,medicine:{medicine_name:"amlodipine",strength:"5 mg",dosage_form:"tablet",pack_size:30,unit:"packs",cold_chain_required:false},currency:"USD"},quotes:[],decision:{status:"clarification",summary:"What quantity should I use?",human_review_required:false,escalation_reasons:[],policy_version:"procura-policy-v1",trace_id:"trace-input-reset",no_transaction_completed:true} };
+    const send = vi.spyOn(api, "sendMessage").mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(result);
+
+    render(<Home />);
+    const composer = await screen.findByLabelText("Procurement request");
+    fireEvent.change(composer, { target:{value:"We need amlodipine 5 mg tablets"} });
+    fireEvent.click(screen.getByRole("button", { name:"Send procurement request" }));
+    await screen.findByText(/request could not be completed/i, {}, { timeout:3000 });
+    expect(composer).toHaveValue("We need amlodipine 5 mg tablets");
+
+    fireEvent.click(screen.getByRole("button", { name:"Send procurement request" }));
+    expect(await screen.findByText("What quantity should I use?", {}, { timeout:3000 })).toBeVisible();
+    expect(composer).toHaveValue("");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("uses stable URLs for authenticated screens", async () => {
     window.localStorage.setItem("procura-guide:buyer-route", "seen");
     window.history.replaceState({}, "", "/workspace");
@@ -189,6 +211,28 @@ describe("guided product journey", () => {
     fireEvent.change(screen.getByLabelText("Lead time (days)"), { target:{value:"13"} });
     fireEvent.click(screen.getByRole("button", { name:"Submit quotation for verification" }));
     expect(await screen.findByText("Quotation submitted for staff verification.")).toBeVisible();
+    expect(screen.getByLabelText("Medicine")).toHaveValue("");
+    expect(screen.getByLabelText("Strength")).toHaveValue("");
+    expect(screen.getByLabelText("Currency")).toHaveValue("USD");
+  });
+
+  it("clears supplier profile inputs after a successful submission", async () => {
+    window.localStorage.setItem("procura-guide:supplier-profile-reset", "seen");
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"supplier-profile-reset",email:"supplier@procura.example",display_name:"Supplier",organization:"Northstar",role:"supplier",created_at:new Date().toISOString() });
+    vi.spyOn(api, "supplierDashboard").mockResolvedValue({ supplier:{id:"northstar",display_name:"Northstar Health Supply",authorization:{status:"authorized",expiry_date:"2028-12-31"},capability:{destinations:["Ghana","Kenya"],cold_chain:true},reliability_score:.94,quotes:[]},quote_count:0,eligible_destination_count:2,compliance_state:"authorized",submissions:[] });
+    const submit = vi.spyOn(api, "submitSupplierProfile").mockResolvedValue({ id:"profile-reset-submission",supplier_id:"northstar",kind:"profile",payload:{},status:"pending",created_at:new Date().toISOString() });
+
+    render(<Home />);
+    const name = await screen.findByLabelText("Supplier name");
+    expect(name).toHaveValue("Northstar Health Supply");
+    fireEvent.click(screen.getByRole("button", { name:"Submit profile for verification" }));
+
+    expect(await screen.findByText("Profile update submitted for staff verification.")).toBeVisible();
+    expect(name).toHaveValue("");
+    expect(screen.getByLabelText("Destinations")).toHaveValue("");
+    expect(screen.getByLabelText("Authorization expiry")).toHaveValue("");
+    expect(screen.getByLabelText("Cold-chain capable")).not.toBeChecked();
+    expect(submit).toHaveBeenCalledOnce();
   });
 
   it("prepares a supplier quote form without submitting it", async () => {

@@ -143,20 +143,27 @@ export default function Home() {
   async function submit(event?: FormEvent, supplied?: string) {
     event?.preventDefault(); const content = (supplied || input).trim();
     if (!content || loading) return;
-    setInput(""); setError(undefined); setLoading(true); setMessages(current => [...current, { role: "user", content }]);
+    setError(undefined); setLoading(true); setMessages(current => [...current, { role: "user", content }]);
     notify("Request submitted", "Procura is checking requirements and supplier quotations.");
     let id = conversationId;
+    const progressSteps = ["Request understood", "Checking supplier eligibility", "Comparing quotations", "Applying review policy"];
+    let progressIndex = 0;
+    setProgress(progressSteps[progressIndex]);
+    const progressTimer = window.setInterval(() => {
+      progressIndex = Math.min(progressIndex + 1, progressSteps.length - 1);
+      setProgress(progressSteps[progressIndex]);
+    }, 900);
     try {
       if (!id) { id = (await api.createConversation()).id; setConversationId(id); }
-      for (const step of ["Request understood", "Checking supplier eligibility", "Comparing quotations", "Applying review policy"]) { setProgress(step); await new Promise(resolve => setTimeout(resolve, 180)); }
       const result = await api.sendMessage(id, content);
+      setInput("");
       setProgress("Recommendation ready"); setLatest(result);
       setMessages(current => [...current, { role: "assistant", content: result.message.content, result }]);
       if (result.decision.status === "recommended") notify("Review complete", "An eligible supplier recommendation is ready.", "success");
       else if (result.decision.status === "clarification") notify("More information needed", "Answer the clarification to continue the review.", "attention");
       else notify("Review complete", "The request has been routed for staff attention.", "attention");
     } catch { setError("The request could not be completed. Your text was not lost. Retry when the API is available."); notify("Review interrupted", "Your request is preserved and can be retried.", "error"); }
-    finally { setTimeout(() => setProgress(undefined), 300); setLoading(false); }
+    finally { window.clearInterval(progressTimer); setTimeout(() => setProgress(undefined), 300); setLoading(false); }
   }
 
   if (!authReady) return <main className="auth-loading" role="status"><span className="pulse-dot" />Loading Procura…</main>;
@@ -388,14 +395,14 @@ function SupplierDashboard() {
   const load = useCallback(() => api.supplierDashboard().then(value => { setData(value); const quoteId = window.location.pathname.match(/^\/supplier\/quotations\/([^/]+)$/)?.[1]; const submissionId = window.location.pathname.match(/^\/supplier\/submissions\/([^/]+)$/)?.[1]; setExpandedQuote(value.supplier.quotes.some(quote => quote.id === quoteId) ? quoteId : undefined); setSelectedSubmission(value.submissions.find(item => item.id === submissionId)); setFailed(false); }).catch(() => setFailed(true)), []);
   useEffect(() => { load(); }, [load]);
   async function submitProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSaving(true); setFeedback(""); const form = new FormData(event.currentTarget);
-    try { await api.submitSupplierProfile({ display_name:String(form.get("display_name") || ""), destinations:String(form.get("destinations") || "").split(",").map(value => value.trim()).filter(Boolean), cold_chain:form.get("cold_chain") === "on", authorization_expiry:String(form.get("authorization_expiry") || "") }); setFeedback("Profile update submitted for staff verification."); await load(); }
+    event.preventDefault(); setSaving(true); setFeedback(""); const formElement = event.currentTarget; const form = new FormData(formElement);
+    try { await api.submitSupplierProfile({ display_name:String(form.get("display_name") || ""), destinations:String(form.get("destinations") || "").split(",").map(value => value.trim()).filter(Boolean), cold_chain:form.get("cold_chain") === "on", authorization_expiry:String(form.get("authorization_expiry") || "") }); Array.from(formElement.elements).forEach(field => { if (field instanceof HTMLInputElement) { if (field.type === "checkbox") field.checked = false; else field.value = ""; } }); setFeedback("Profile update submitted for staff verification."); await load(); }
     catch (error) { setFeedback(error instanceof Error ? error.message : "Profile update could not be submitted."); }
     finally { setSaving(false); }
   }
   async function submitQuote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setFeedback(""); const formElement = event.currentTarget; const form = new FormData(formElement);
-    try { await api.submitSupplierQuote({ medicine_name:String(form.get("medicine_name") || ""), strength:String(form.get("strength") || ""), dosage_form:String(form.get("dosage_form") || ""), pack_size:Number(form.get("pack_size")), available_quantity_packs:Number(form.get("available_quantity_packs")), unit_price:Number(form.get("unit_price")), currency:String(form.get("currency") || ""), lead_time_days:Number(form.get("lead_time_days")) }); formElement.reset(); setFeedback("Quotation submitted for staff verification."); await load(); }
+    try { await api.submitSupplierQuote({ medicine_name:String(form.get("medicine_name") || ""), strength:String(form.get("strength") || ""), dosage_form:String(form.get("dosage_form") || ""), pack_size:Number(form.get("pack_size")), available_quantity_packs:Number(form.get("available_quantity_packs")), unit_price:Number(form.get("unit_price")), currency:String(form.get("currency") || ""), lead_time_days:Number(form.get("lead_time_days")) }); formElement.reset(); setDraftText(""); setDraft(undefined); setFeedback("Quotation submitted for staff verification."); await load(); }
     catch (error) { setFeedback(error instanceof Error ? error.message : "Quotation could not be submitted."); }
     finally { setSaving(false); }
   }

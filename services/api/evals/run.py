@@ -18,12 +18,17 @@ async def run():
     scenarios=json.loads((ROOT/"scenarios.json").read_text()); results=[]
     for scenario in scenarios:
         conversation=service.create_conversation()
+        if scenario.get("initial_input"):
+            await service.execute(conversation.id, scenario["initial_input"], f"eval-{scenario['id']}-initial")
         response=await service.execute(conversation.id,scenario["input"],f"eval-{scenario['id']}")
         with SessionLocal() as db: trace=json.loads(db.get(ExecutionRow,response.decision.trace_id).trace_data)
-        expected_length={"clarification":1,"recommended":9,"review_required":10,"failed_safe":1}[response.decision.status]
+        expected_length=scenario.get("expected_tool_count", {"clarification":1,"recommended":9,"review_required":10,"failed_safe":1}[response.decision.status])
         tool_sequence_valid=len(trace["tool_sequence"])==expected_length
-        passed=response.decision.status==scenario["expected_status"] and response.decision.recommendation_supplier_id==scenario["expected_supplier"] and response.decision.no_transaction_completed and tool_sequence_valid
-        results.append({"id":scenario["id"],"passed":passed,"actual_status":response.decision.status,"actual_supplier":response.decision.recommendation_supplier_id,"schema_valid":True,"expected_tool_sequence":tool_sequence_valid,"unsupported_claims":0})
+        medicine_valid=not scenario.get("expected_medicine") or response.request.medicine.medicine_name==scenario["expected_medicine"]
+        strength_valid=not scenario.get("expected_strength") or response.request.medicine.strength==scenario["expected_strength"]
+        review_valid="expected_review" not in scenario or response.decision.human_review_required==scenario["expected_review"]
+        passed=response.decision.status==scenario["expected_status"] and response.decision.recommendation_supplier_id==scenario["expected_supplier"] and response.decision.no_transaction_completed and tool_sequence_valid and medicine_valid and strength_valid and review_valid
+        results.append({"id":scenario["id"],"passed":passed,"actual_status":response.decision.status,"actual_supplier":response.decision.recommendation_supplier_id,"schema_valid":True,"expected_tool_sequence":tool_sequence_valid,"request_preserved":medicine_valid and strength_valid,"correct_escalation":review_valid,"unsupported_claims":0})
     rate=sum(r["passed"] for r in results)/len(results); report={"provider":service.provider.name,"threshold":0.9,"passed":sum(r["passed"] for r in results),"total":len(results),"pass_rate":rate,"results":results}
     out=ROOT/"results"; out.mkdir(exist_ok=True); (out/"latest.json").write_text(json.dumps(report,indent=2)+"\n")
     lines=["# Procura deterministic evaluation","",f"Provider: `{service.provider.name}`",f"Result: **{report['passed']}/{report['total']} ({rate:.1%})**",f"Threshold: **{report['threshold']:.0%}**","","| Scenario | Pass | Decision | Supplier |","|---|---:|---|---|"]

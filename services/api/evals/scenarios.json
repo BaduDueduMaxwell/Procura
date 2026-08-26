@@ -10,5 +10,6 @@
   {"id":"currency_mismatch","input":"2,000 packs of amoxicillin 500 mg capsules, pack size 100, to Ghana within 21 days in EUR","expected_status":"review_required","expected_supplier":null},
   {"id":"price_outlier","input":"2,000 packs of amoxicillin 500 mg tablets, pack size 50, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
   {"id":"no_supplier","input":"2,000 packs of ceftriaxone 500 mg vials, pack size 10, to Ghana within 21 days in USD","expected_status":"review_required","expected_supplier":null},
-  {"id":"provider_failure","input":"provider failure","expected_status":"failed_safe","expected_supplier":null}
+  {"id":"provider_failure","input":"provider failure while interpreting an amoxicillin procurement request","expected_status":"failed_safe","expected_supplier":null},
+  {"id":"out_of_scope_follow_up","initial_input":"We need amlodipine 5 mg tablets, pack size 30 and price in USD","input":"how are you","expected_status":"clarification","expected_supplier":null,"expected_tool_count":1,"expected_medicine":"amlodipine","expected_strength":"5 mg","expected_review":false}
 ]

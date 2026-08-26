@@ -61,6 +61,7 @@ from app.services.auth import (
 )
 from app.services.catalog import list_medicine_catalog
 from app.services.role_assistants import create_review_brief, draft_supplier_quote
+from app.services.scope import SCOPE_REJECTION_TOOL
 from app.services.seed import seed_supplier_database, synthetic_suppliers
 
 settings = get_settings()
@@ -115,6 +116,11 @@ def execution_decision(row: ExecutionRow) -> DashboardDecision:
     )
 
 
+def is_scope_rejection(row: ExecutionRow) -> bool:
+    trace = TraceSummary.model_validate_json(row.trace_data)
+    return SCOPE_REJECTION_TOOL in trace.tool_sequence
+
+
 @app.get("/health")
 def health(): return {"status": "ok", "provider": service.provider.name, "policy_version": "procura-policy-v1"}
 
@@ -167,7 +173,8 @@ def customer_dashboard(user: AuthUser = Depends(current_user)):
         raise HTTPException(403, "Customer workspace required")
     with SessionLocal() as db:
         conversation_ids = list(db.scalars(select(ResourceOwnerRow.resource_id).where(ResourceOwnerRow.resource_type == "conversation", ResourceOwnerRow.user_id == user.id)).all())
-        rows = db.scalars(select(ExecutionRow).where(ExecutionRow.conversation_id.in_(conversation_ids)).order_by(ExecutionRow.created_at.desc())).all() if conversation_ids else []
+        all_rows = db.scalars(select(ExecutionRow).where(ExecutionRow.conversation_id.in_(conversation_ids)).order_by(ExecutionRow.created_at.desc())).all() if conversation_ids else []
+        rows = [row for row in all_rows if not is_scope_rejection(row)]
         # Opening the workspace creates an empty conversation shell. Count it as
         # a request only after the buyer submits a message, and use the latest
         # execution so clarification turns cannot inflate the dashboard totals.
@@ -415,7 +422,8 @@ def execution(trace_id: str, user: AuthUser = Depends(current_user)):
 @app.get("/api/operations/summary", response_model=OperationsSummary)
 def operations(_: AuthUser = Depends(admin_user)):
     with SessionLocal() as db:
-        rows = db.scalars(select(ExecutionRow).order_by(ExecutionRow.created_at.desc())).all()
+        all_rows = db.scalars(select(ExecutionRow).order_by(ExecutionRow.created_at.desc())).all()
+        rows = [row for row in all_rows if not is_scope_rejection(row)]
         traces = [execution_decision(row) for row in rows[:8]]
         latencies = sorted(r.latency_ms for r in rows)
         p50 = statistics.median(latencies) if len(latencies) >= 2 else None

@@ -1,8 +1,8 @@
 {
   "provider": "local",
   "threshold": 0.9,
-  "passed": 12,
-  "total": 12,
+  "passed": 13,
+  "total": 13,
   "pass_rate": 1.0,
   "results": [
     {
@@ -12,6 +12,8 @@
       "actual_supplier": "northstar",
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -21,6 +23,8 @@
       "actual_supplier": "northstar",
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -30,6 +34,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -39,6 +45,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -48,6 +56,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -57,6 +67,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -66,6 +78,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -75,6 +89,8 @@
       "actual_supplier": "northstar",
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -84,6 +100,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -93,6 +111,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -102,6 +122,8 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     },
     {
@@ -111,6 +133,19 @@
       "actual_supplier": null,
       "schema_valid": true,
       "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "out_of_scope_follow_up",
+      "passed": true,
+      "actual_status": "clarification",
+      "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
       "unsupported_claims": 0
     }
   ]

@@ -21,6 +21,7 @@ from app.domain.models import (
 )
 from app.models.database import ConversationRow, ExecutionRow, ReviewRow, SessionLocal
 from app.observability.adapters import Observability
+from app.services.scope import SCOPE_REJECTION_TOOL, is_procurement_message, scope_redirect
 from app.services.seed import synthetic_suppliers
 from app.services.tools import (
     compare_quote_prices,
@@ -100,45 +101,52 @@ class AgentService:
         self.provider.begin_execution()
         try:
             if simulate_timeout: raise ToolTimeoutError("Supplier verification exceeded its safe deadline")
-            interpretation = await self.provider.interpret(content, conversation.draft)
-            request = normalize_procurement_request(interpretation.request)
-            tool_sequence.append("normalize_procurement_request")
-            conversation.draft = request
-            missing = request.missing_fields()
-            if missing:
-                question = f"What {missing[0]} should I use?"
-                decision = AgentDecision(status="clarification", summary=question, trace_id=trace_id)
-                assistant = Message(role="assistant", content=question)
-                progress = ["Request understood"]
+            if not is_procurement_message(content, conversation.draft):
+                message = scope_redirect(request)
+                decision = AgentDecision(status="clarification", summary=message, trace_id=trace_id)
+                assistant = Message(role="assistant", content=message)
+                progress = ["Message kept within procurement scope"]
+                tool_sequence.append(SCOPE_REJECTION_TOOL)
             else:
-                planned_tools = interpretation.tool_plan
-                if planned_tools != REQUIRED_TOOL_PLAN:
-                    raise ValueError("Unsafe or incomplete tool plan")
-                matches = search_synthetic_suppliers(request, synthetic_suppliers())
-                price_results = compare_quote_prices(request, matches)
-                evaluated = []
-                for supplier, quote in matches:
-                    eligibility = evaluate_quote(request, supplier, quote, price_results[quote.id])
-                    evaluated.append((supplier, quote, eligibility))
-                tool_sequence.extend(planned_tools)
-                quotes = rank_eligible_quotes(request, evaluated)
-                eligible = [q for q in quotes if q.eligible]
-                risky_reasons = []
-                if not eligible:
-                    risky_reasons = sorted({reason for q in quotes for reason in q.reasons})
-                    if not matches: risky_reasons.append("No repository quotation matches the requested medicine")
-                    risky_reasons.append("No eligible quotation")
-                review_reasons = risky_reasons
-                if risky_reasons:
-                    best = eligible[0].supplier_id if eligible else None
-                    decision = AgentDecision(status="review_required", recommendation_supplier_id=best, summary="No eligible quotation is available. Staff review is required.", human_review_required=True, escalation_reasons=risky_reasons, trace_id=trace_id)
-                    assistant = Message(role="assistant", content=decision.summary)
+                interpretation = await self.provider.interpret(content, conversation.draft)
+                request = normalize_procurement_request(interpretation.request)
+                tool_sequence.append("normalize_procurement_request")
+                conversation.draft = request
+                missing = request.missing_fields()
+                if missing:
+                    question = f"What {missing[0]} should I use?"
+                    decision = AgentDecision(status="clarification", summary=question, trace_id=trace_id)
+                    assistant = Message(role="assistant", content=question)
+                    progress = ["Request understood"]
                 else:
-                    best = eligible[0]
-                    best_name = next(supplier.display_name for supplier, _, _ in evaluated if supplier.id == best.supplier_id)
-                    decision = AgentDecision(status="recommended", recommendation_supplier_id=best.supplier_id, summary=f"{best_name} is the highest-ranked eligible quotation.", trace_id=trace_id)
-                    assistant = Message(role="assistant", content=decision.summary)
-                progress = PROGRESS
+                    planned_tools = interpretation.tool_plan
+                    if planned_tools != REQUIRED_TOOL_PLAN:
+                        raise ValueError("Unsafe or incomplete tool plan")
+                    matches = search_synthetic_suppliers(request, synthetic_suppliers())
+                    price_results = compare_quote_prices(request, matches)
+                    evaluated = []
+                    for supplier, quote in matches:
+                        eligibility = evaluate_quote(request, supplier, quote, price_results[quote.id])
+                        evaluated.append((supplier, quote, eligibility))
+                    tool_sequence.extend(planned_tools)
+                    quotes = rank_eligible_quotes(request, evaluated)
+                    eligible = [q for q in quotes if q.eligible]
+                    risky_reasons = []
+                    if not eligible:
+                        risky_reasons = sorted({reason for q in quotes for reason in q.reasons})
+                        if not matches: risky_reasons.append("No repository quotation matches the requested medicine")
+                        risky_reasons.append("No eligible quotation")
+                    review_reasons = risky_reasons
+                    if risky_reasons:
+                        best = eligible[0].supplier_id if eligible else None
+                        decision = AgentDecision(status="review_required", recommendation_supplier_id=best, summary="No eligible quotation is available. Staff review is required.", human_review_required=True, escalation_reasons=risky_reasons, trace_id=trace_id)
+                        assistant = Message(role="assistant", content=decision.summary)
+                    else:
+                        best = eligible[0]
+                        best_name = next(supplier.display_name for supplier, _, _ in evaluated if supplier.id == best.supplier_id)
+                        decision = AgentDecision(status="recommended", recommendation_supplier_id=best.supplier_id, summary=f"{best_name} is the highest-ranked eligible quotation.", trace_id=trace_id)
+                        assistant = Message(role="assistant", content=decision.summary)
+                    progress = PROGRESS
         except Exception as exc:  # noqa: BLE001 - the workflow boundary must fail safe
             self.observability.capture(
                 exc,

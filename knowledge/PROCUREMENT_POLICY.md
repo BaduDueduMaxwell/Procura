@@ -6,6 +6,7 @@ These are illustrative operating rules, not legal or regulatory advice and not a
 
 - The model must never invent supplier, product, authorization, price, inventory, or conversion-rate facts. Only repository data and deterministic tool results establish supplier facts.
 - The model may interpret intent and explain results. Arithmetic, eligibility, deadlines, currencies, and ranking are deterministic.
+- Messages outside medicine procurement are redirected without calling the model, changing the active request, or creating a human-review case.
 - Missing or ambiguous medicine, strength, dosage form, quantity, pack size, or units requires clarification or human review.
 - Quoted quantity is supplier availability. Availability must cover the requested packs; pack size and units must match exactly. Procura never converts pack sizes implicitly.
 - Missing or expired authorization, unsupported destination, cold-chain incompatibility, pack mismatch, or currency mismatch without a verified rate requires human review.

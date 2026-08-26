@@ -1,7 +1,7 @@
 # Procura deterministic evaluation
 
 Provider: `local`
-Result: **12/12 (100.0%)**
+Result: **13/13 (100.0%)**
 Threshold: **90%**
 
 | Scenario | Pass | Decision | Supplier |
@@ -18,3 +18,4 @@ Threshold: **90%**
 | price_outlier | Yes | review_required | — |
 | no_supplier | Yes | review_required | — |
 | provider_failure | Yes | failed_safe | — |
+| out_of_scope_follow_up | Yes | clarification | — |

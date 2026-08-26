@@ -140,7 +140,7 @@ def test_agent_service_uses_provider_single_call_interpretation(client):
         conversation_id = new_conversation(client)
         response = client.post(
             f"/api/conversations/{conversation_id}/messages",
-            json={"content": "complete request", "idempotency_key": "single-provider-call-01"},
+            json={"content": "complete amoxicillin procurement request", "idempotency_key": "single-provider-call-01"},
         )
     finally:
         service.provider = original_provider
@@ -172,6 +172,48 @@ def test_partial_catalog_request_keeps_extracted_fields_and_asks_for_quantity(cl
     assert body["request"]["medicine"]["dosage_form"] == "tablet"
     assert body["request"]["medicine"]["pack_size"] == 30
     assert body["request"]["currency"] == "USD"
+
+
+def test_out_of_scope_follow_up_preserves_request_without_provider_or_review(client):
+    class ProviderMustNotRun(DeterministicLLMProvider):
+        calls = 0
+
+        async def interpret(self, text, previous=None):
+            self.calls += 1
+            raise AssertionError("Out-of-scope messages must not reach the provider")
+
+    cid = new_conversation(client)
+    first = client.post(
+        f"/api/conversations/{cid}/messages",
+        json={"content": "We need amlodipine 5 mg tablets, pack size 30 and price in USD", "idempotency_key": "scope-initial-01"},
+    ).json()
+    initial_trace = first["decision"]["trace_id"]
+    original_provider = service.provider
+    blocked_provider = ProviderMustNotRun()
+    service.provider = blocked_provider
+    try:
+        payload = {"content": "how are you", "idempotency_key": "scope-follow-up-01"}
+        response = client.post(f"/api/conversations/{cid}/messages", json=payload)
+        repeated = client.post(f"/api/conversations/{cid}/messages", json=payload)
+    finally:
+        service.provider = original_provider
+
+    assert response.status_code == 200
+    body = response.json()
+    assert repeated.json() == body
+    assert blocked_provider.calls == 0
+    assert body["decision"]["status"] == "clarification"
+    assert body["decision"]["human_review_required"] is False
+    assert body["message"]["content"] == "Procura handles medicine procurement only. To continue this request, what quantity should I use?"
+    assert body["request"] == first["request"]
+
+    dashboard = client.get("/api/dashboard/summary").json()
+    assert dashboard["conversation_count"] == 1
+    assert dashboard["execution_count"] == 0
+    assert dashboard["recent_decisions"][0]["trace_id"] == initial_trace
+
+    login_reviewer(client)
+    assert client.get("/api/reviews").json() == []
 
 
 def test_customer_dashboard_ignores_empty_shells_and_counts_latest_request_state(client):
