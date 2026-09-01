@@ -8,7 +8,7 @@ from app.agent.providers import (
 )
 from app.domain.models import ProcurementRequest
 from app.main import service
-from app.models.database import ResourceOwnerRow, ReviewRow, SessionLocal
+from app.models.database import ResourceOwnerRow, ReviewRow, SessionLocal, SupplierRow
 from sqlalchemy import select
 
 
@@ -55,6 +55,125 @@ def test_health_and_happy_path(client):
     assert response.status_code == 200
     body = response.json(); assert body["decision"]["status"] == "recommended" and body["decision"]["recommendation_supplier_id"] == "northstar"
     assert body["decision"]["no_transaction_completed"]
+
+
+def publish_amoxicillin_request(client, key="publish-connected-01"):
+    login_seeded_buyer(client)
+    conversation_id = new_conversation(client)
+    result = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        json={
+            "content": "2,000 packs of amoxicillin 500 mg capsules, pack size 100, to Accra within 21 days in USD",
+            "idempotency_key": f"{key}-interpret",
+        },
+    ).json()
+    published = client.post(
+        f"/api/executions/{result['decision']['trace_id']}/publish",
+        json={"idempotency_key": key},
+    )
+    assert published.status_code == 201
+    return published.json()
+
+
+def test_connected_buyer_supplier_reviewer_lifecycle_is_auditable_and_idempotent(client):
+    published = publish_amoxicillin_request(client)
+    assert published["status"] == "open_for_responses"
+    assert published["invited_supplier_count"] >= 1
+    assert published["events"][0]["event_type"] == "request_published"
+
+    duplicate = client.post(
+        f"/api/executions/{published['trace_id']}/publish",
+        json={"idempotency_key": "publish-connected-01"},
+    )
+    assert duplicate.status_code == 201
+    assert duplicate.json()["id"] == published["id"]
+
+    login_supplier(client)
+    assignments = client.get("/api/supplier/requests").json()
+    assignment = next(item for item in assignments if item["request"]["id"] == published["id"])
+    assert assignment["invitation_status"] == "invited"
+    response_payload = {
+        "available_quantity_packs": 2200,
+        "unit_price": 5.1,
+        "currency": "usd",
+        "lead_time_days": 18,
+        "idempotency_key": "supplier-response-connected-01",
+    }
+    response = client.post(f"/api/supplier/requests/{published['id']}/responses", json=response_payload)
+    assert response.status_code == 201
+    assert response.json()["currency"] == "USD"
+    assert response.json()["review_id"]
+    assert client.post(f"/api/supplier/requests/{published['id']}/responses", json=response_payload).json()["id"] == response.json()["id"]
+    supplier_notices = client.get("/api/notifications").json()
+    assert {item["title"] for item in supplier_notices} >= {"New buyer request", "Response submitted"}
+
+    login_reviewer(client)
+    review_id = response.json()["review_id"]
+    review = next(item for item in client.get("/api/reviews").json() if item["id"] == review_id)
+    assert review["recommendation_supplier_id"] == "northstar"
+    brief = client.get(f"/api/reviews/{review_id}/brief").json()
+    assert brief["suggested_action"] == "approve"
+    assert "passed the deterministic checks" in brief["suggestion_reason"]
+    approved = client.post(
+        f"/api/reviews/{review_id}/decision",
+        json={"action": "approve", "note": "Current evidence verified", "idempotency_key": "connected-approve-01"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+
+    login_seeded_buyer(client)
+    lifecycle = client.get(f"/api/procurement-requests/{published['id']}").json()
+    assert lifecycle["status"] == "approved"
+    assert lifecycle["events"][-1]["event_type"] == "review_approve"
+    assert any(item["title"] == "Request review updated" for item in client.get("/api/notifications").json())
+
+
+def test_reviewer_cannot_approve_supplier_response_after_evidence_changes(client):
+    published = publish_amoxicillin_request(client, "publish-stale-01")
+    login_supplier(client)
+    response = client.post(
+        f"/api/supplier/requests/{published['id']}/responses",
+        json={
+            "available_quantity_packs": 2200,
+            "unit_price": 5.1,
+            "currency": "USD",
+            "lead_time_days": 18,
+            "idempotency_key": "supplier-response-stale-01",
+        },
+    ).json()
+    with SessionLocal() as db:
+        supplier = db.get(SupplierRow, "northstar")
+        supplier.authorization_status = "expired"
+        db.commit()
+
+    login_reviewer(client)
+    blocked = client.post(
+        f"/api/reviews/{response['review_id']}/decision",
+        json={"action": "approve", "note": "Attempt approval", "idempotency_key": "stale-approve-01"},
+    )
+    assert blocked.status_code == 409
+    assert "no longer eligible" in blocked.json()["detail"]
+    refreshed = client.get(f"/api/reviews/{response['review_id']}").json()
+    assert refreshed["status"] == "open"
+    assert "Authorization expired" in refreshed["reasons"]
+
+
+def test_connected_workflow_enforces_role_and_record_boundaries(client):
+    published = publish_amoxicillin_request(client, "publish-boundary-01")
+    login_supplier(client)
+    assert client.get(f"/api/procurement-requests/{published['id']}").status_code == 200
+    assert client.post(
+        "/api/executions/not-owned/publish",
+        json={"idempotency_key": "wrong-role-publish"},
+    ).status_code == 403
+    login_seeded_buyer(client)
+    assert client.get("/api/supplier/requests").status_code == 403
+    notices = client.get("/api/notifications").json()
+    if notices:
+        assert client.post(
+            f"/api/notifications/{notices[0]['id']}/read",
+            json={"idempotency_key": "mark-read-01"},
+        ).json()["is_read"] is True
 
 
 def test_close_medicine_typo_requires_confirmation_before_evaluation(client):

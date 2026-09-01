@@ -24,7 +24,11 @@ from app.domain.models import (
     LoginRequest,
     MedicineCatalogItem,
     MessageRequest,
+    Notification,
+    NotificationReadRequest,
     OperationsSummary,
+    ProcurementLifecycle,
+    PublishProcurementRequest,
     ReviewBrief,
     ReviewDecisionRequest,
     SignupRequest,
@@ -33,16 +37,23 @@ from app.domain.models import (
     SupplierQuoteDraft,
     SupplierQuoteDraftRequest,
     SupplierQuoteSubmissionRequest,
+    SupplierRequestAssignment,
+    SupplierRequestResponse,
+    SupplierRequestResponseRequest,
     SupplierSubmission,
     SupplierSubmissionDecisionRequest,
     TraceSummary,
 )
 from app.models.database import (
     ExecutionRow,
+    NotificationRow,
+    ProcurementLifecycleRow,
     QuoteRow,
+    RequestSupplierRow,
     ResourceOwnerRow,
     ReviewRow,
     SessionLocal,
+    SupplierResponseRow,
     SupplierRow,
     SupplierSubmissionRow,
     UserRow,
@@ -63,6 +74,18 @@ from app.services.auth import (
     staff_user,
 )
 from app.services.catalog import list_medicine_catalog
+from app.services.procurement_lifecycle import (
+    add_event,
+    add_notification,
+    current_supplier,
+    evaluate_response_set,
+    evidence_fingerprint,
+    notification,
+    procurement_lifecycle,
+    publish_execution,
+    submit_supplier_response,
+    supplier_assignments,
+)
 from app.services.role_assistants import create_review_brief, draft_supplier_quote
 from app.services.scope import SCOPE_REJECTION_TOOL
 from app.services.seed import seed_supplier_database, synthetic_suppliers
@@ -239,6 +262,91 @@ def linked_supplier_id(user: AuthUser, db) -> str:
     return link.resource_id
 
 
+@app.post("/api/executions/{trace_id}/publish", response_model=ProcurementLifecycle, status_code=201)
+def publish_procurement(trace_id: str, body: PublishProcurementRequest, user: AuthUser = Depends(current_user)):
+    if user.role not in {"buyer", "admin"}:
+        raise HTTPException(403, "Buyer workspace required")
+    with SessionLocal() as db:
+        execution = db.get(ExecutionRow, trace_id)
+        if not execution:
+            raise HTTPException(404, "Procurement decision not found")
+        owner = db.scalar(select(ResourceOwnerRow).where(ResourceOwnerRow.resource_type == "conversation", ResourceOwnerRow.resource_id == execution.conversation_id))
+        if not owner or (owner.user_id != user.id and user.role != "admin"):
+            raise HTTPException(404, "Procurement decision not found")
+        try:
+            return publish_execution(db, execution, owner.user_id, body.idempotency_key)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(404, "Procurement decision not found") from exc
+
+
+@app.get("/api/procurement-requests", response_model=list[ProcurementLifecycle])
+def procurement_requests(user: AuthUser = Depends(current_user)):
+    if user.role not in {"buyer", "reviewer", "admin"}:
+        raise HTTPException(403, "Buyer or staff workspace required")
+    with SessionLocal() as db:
+        query = select(ProcurementLifecycleRow).order_by(ProcurementLifecycleRow.updated_at.desc())
+        if user.role == "buyer":
+            query = query.where(ProcurementLifecycleRow.buyer_id == user.id)
+        return [procurement_lifecycle(db, row) for row in db.scalars(query).all()]
+
+
+@app.get("/api/procurement-requests/{request_id}", response_model=ProcurementLifecycle)
+def procurement_request(request_id: str, user: AuthUser = Depends(current_user)):
+    with SessionLocal() as db:
+        row = db.get(ProcurementLifecycleRow, request_id)
+        if not row:
+            raise HTTPException(404, "Procurement request not found")
+        allowed = user.role in {"reviewer", "admin"} or row.buyer_id == user.id
+        if user.role == "supplier":
+            supplier_id = linked_supplier_id(user, db)
+            allowed = bool(db.scalar(select(RequestSupplierRow).where(RequestSupplierRow.request_id == row.id, RequestSupplierRow.supplier_id == supplier_id)))
+        if not allowed:
+            raise HTTPException(404, "Procurement request not found")
+        return procurement_lifecycle(db, row)
+
+
+@app.get("/api/supplier/requests", response_model=list[SupplierRequestAssignment])
+def supplier_requests(user: AuthUser = Depends(current_user)):
+    with SessionLocal() as db:
+        return supplier_assignments(db, linked_supplier_id(user, db))
+
+
+@app.post("/api/supplier/requests/{request_id}/responses", response_model=SupplierRequestResponse, status_code=201)
+def respond_to_buyer_request(request_id: str, body: SupplierRequestResponseRequest, user: AuthUser = Depends(current_user)):
+    with SessionLocal() as db:
+        supplier_id = linked_supplier_id(user, db)
+        lifecycle = db.get(ProcurementLifecycleRow, request_id)
+        supplier = current_supplier(supplier_id)
+        if not lifecycle or not supplier:
+            raise HTTPException(404, "Buyer request not found")
+        try:
+            return submit_supplier_response(db, lifecycle, supplier, user.id, body)
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/api/notifications", response_model=list[Notification])
+def notifications(user: AuthUser = Depends(current_user)):
+    with SessionLocal() as db:
+        rows = db.scalars(select(NotificationRow).where(NotificationRow.user_id == user.id).order_by(NotificationRow.created_at.desc()).limit(50)).all()
+        return [notification(row) for row in rows]
+
+
+@app.post("/api/notifications/{notification_id}/read", response_model=Notification)
+def read_notification(notification_id: str, _: NotificationReadRequest, user: AuthUser = Depends(current_user)):
+    with SessionLocal() as db:
+        row = db.get(NotificationRow, notification_id)
+        if not row or row.user_id != user.id:
+            raise HTTPException(404, "Notification not found")
+        row.is_read = True
+        db.commit(); db.refresh(row)
+        return notification(row)
+
+
 def create_supplier_submission(user: AuthUser, kind: str, payload: dict, idempotency_key: str) -> SupplierSubmission:
     with SessionLocal() as db:
         existing = db.scalar(select(SupplierSubmissionRow).where(SupplierSubmissionRow.idempotency_key == idempotency_key))
@@ -397,8 +505,47 @@ def review_decision(review_id: str, body: ReviewDecisionRequest, user: AuthUser 
         case = HumanReviewCase.model_validate_json(row.data)
         if body.idempotency_key in keys: return case
         if case.status != "open": raise HTTPException(409, "Review already decided")
+        supplier_response = db.scalar(select(SupplierResponseRow).where(SupplierResponseRow.review_id == review_id))
+        lifecycle = db.get(ProcurementLifecycleRow, supplier_response.request_id) if supplier_response else None
+        if body.action == "approve" and supplier_response and lifecycle:
+            supplier = current_supplier(supplier_response.supplier_id)
+            if not supplier:
+                raise HTTPException(409, "The supplier profile is unavailable. Approval remains blocked.")
+            request = case.request
+            payload = json.loads(supplier_response.response_json)
+            current_hash = evidence_fingerprint(request, supplier, payload)
+            _, scores, target_score = evaluate_response_set(db, lifecycle, supplier_response)
+            case.quotes = scores
+            if not target_score or not target_score.eligible:
+                case.reasons = list(target_score.reasons if target_score else ["Supplier evidence could not be revalidated"])
+                row.data = case.model_dump_json()
+                supplier_response.status = "evidence_changed"
+                add_event(db, lifecycle.id, user.id, user.role, "approval_blocked", "Approval was blocked because current supplier evidence is no longer eligible.")
+                add_notification(db, lifecycle.buyer_id, lifecycle.id, "Approval paused", "Current supplier evidence no longer passes the request checks.")
+                db.commit()
+                raise HTTPException(409, "Approval blocked: current supplier evidence is no longer eligible. Review the refreshed reasons.")
+            if current_hash != supplier_response.evidence_hash:
+                supplier_response.evidence_hash = current_hash
+                supplier_response.status = "evidence_changed"
+                case.reasons = ["Supplier evidence changed after the response was submitted. The refreshed checks require reviewer confirmation."]
+                row.data = case.model_dump_json()
+                add_event(db, lifecycle.id, user.id, user.role, "evidence_refreshed", "Supplier evidence changed and was revalidated. A second reviewer confirmation is required.")
+                db.commit()
+                raise HTTPException(409, "Supplier evidence changed. Procura refreshed the checks; review them before approving again.")
         case.status = {"approve": "approved", "reject": "rejected", "request_clarification": "clarification_requested"}[body.action]
         case.reviewer_action, case.reviewer_note, case.reviewed_at = body.action, f"{body.note} — {user.display_name}", datetime.now(UTC)
+        if supplier_response and lifecycle:
+            supplier_response.status = case.status
+            lifecycle.status = case.status
+            lifecycle.updated_at = datetime.now(UTC)
+            action_message = {
+                "approve": "Staff approved the supplier response after revalidating current evidence.",
+                "reject": "Staff rejected the supplier response.",
+                "request_clarification": "Staff requested clarification on the supplier response.",
+            }[body.action]
+            add_event(db, lifecycle.id, user.id, user.role, f"review_{body.action}", action_message)
+            add_notification(db, lifecycle.buyer_id, lifecycle.id, "Request review updated", action_message)
+            add_notification(db, supplier_response.user_id, lifecycle.id, "Response review updated", action_message)
         keys.append(body.idempotency_key); row.action_keys = json.dumps(keys); row.data = case.model_dump_json(); db.commit()
         return case
 

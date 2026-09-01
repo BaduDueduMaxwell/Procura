@@ -1,4 +1,4 @@
-import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, Conversation, CustomerDashboard, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierSubmission, Trace } from "./types";
+import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, Conversation, CustomerDashboard, MedicineCatalogItem, Notification, Operations, ProcurementLifecycle, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierRequestAssignment, SupplierRequestResponse, SupplierSubmission, Trace } from "./types";
 import * as Sentry from "@sentry/nextjs";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
@@ -57,6 +57,13 @@ export const api = {
   conversation: (id: string) => request<Conversation>(`/api/conversations/${id}`),
   sendMessage: (id: string, content: string, simulate = false) => request<AgentResponse>(`/api/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content, idempotency_key: crypto.randomUUID(), simulate_tool_timeout: simulate }) }),
   execution: (traceId: string) => request<AgentResponse>(`/api/executions/${traceId}`),
+  publishExecution: (traceId: string) => request<ProcurementLifecycle>(`/api/executions/${traceId}/publish`, { method: "POST", body: JSON.stringify({ idempotency_key: crypto.randomUUID() }) }),
+  procurementRequests: () => request<ProcurementLifecycle[]>("/api/procurement-requests"),
+  procurementRequest: (id: string) => request<ProcurementLifecycle>(`/api/procurement-requests/${id}`),
+  supplierRequests: () => request<SupplierRequestAssignment[]>("/api/supplier/requests"),
+  respondToSupplierRequest: (id: string, body: { available_quantity_packs: number; unit_price: number; currency: string; lead_time_days: number }) => request<SupplierRequestResponse>(`/api/supplier/requests/${id}/responses`, { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) }),
+  notifications: () => request<Notification[]>("/api/notifications"),
+  readNotification: (id: string) => request<Notification>(`/api/notifications/${id}/read`, { method: "POST", body: JSON.stringify({ idempotency_key: crypto.randomUUID() }) }),
   reviews: () => request<ReviewCase[]>("/api/reviews"),
   reviewBrief: (id: string) => request<ReviewBrief>(`/api/reviews/${id}/brief`),
   decideReview: (id: string, action: "approve" | "reject" | "request_clarification", note: string) => request<ReviewCase>(`/api/reviews/${id}/decision`, { method: "POST", body: JSON.stringify({ action, note, idempotency_key: crypto.randomUUID() }) }),

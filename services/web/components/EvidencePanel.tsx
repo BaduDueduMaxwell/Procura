@@ -10,7 +10,7 @@ export function EvidencePanel({ result, close, tourId }: { result?: AgentRespons
       <div className="divider" />
       <p className="label">Trace ID</p><code className="trace-code">{result.decision.trace_id}</code>
       <details><summary>Tool progress</summary><ol className="tool-list">{result.progress_events.map(event => <li key={event}>{event}</li>)}</ol></details>
-      <div className="boundary"><strong>Autonomy boundary</strong><p>No order was placed and no supplier was contacted.</p></div>
+      <div className="boundary"><strong>Autonomy boundary</strong><p>No order was placed and no external supplier message was sent.</p></div>
     </>}
   </aside>;
 }

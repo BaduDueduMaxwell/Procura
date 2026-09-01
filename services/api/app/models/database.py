@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from app.config import get_settings
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, create_engine
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -110,6 +110,66 @@ class QuoteRow(Base):
     pack_size: Mapped[int] = mapped_column(Integer)
     quantity_packs: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[float] = mapped_column(Float)
+
+
+class ProcurementLifecycleRow(Base):
+    __tablename__ = "procurement_lifecycles"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    conversation_id: Mapped[str] = mapped_column(String, index=True)
+    buyer_id: Mapped[str] = mapped_column(String, index=True)
+    request_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="open_for_responses", index=True)
+    publish_idempotency_key: Mapped[str] = mapped_column(String(100), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class RequestSupplierRow(Base):
+    __tablename__ = "request_suppliers"
+    __table_args__ = (UniqueConstraint("request_id", "supplier_id", name="uq_request_supplier"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String, index=True)
+    supplier_id: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="invited")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class SupplierResponseRow(Base):
+    __tablename__ = "supplier_responses"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String, index=True)
+    supplier_id: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    response_json: Mapped[str] = mapped_column(Text)
+    evidence_hash: Mapped[str] = mapped_column(String(64))
+    review_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="submitted", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(100), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class LifecycleEventRow(Base):
+    __tablename__ = "lifecycle_events"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String, index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    actor_role: Mapped[str] = mapped_column(String(20))
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    message: Mapped[str] = mapped_column(String(400))
+    data_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class NotificationRow(Base):
+    __tablename__ = "notifications"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    request_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    message: Mapped[str] = mapped_column(String(400))
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 def sqlalchemy_database_url(url: str) -> str:

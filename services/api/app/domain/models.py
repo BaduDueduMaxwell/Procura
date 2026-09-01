@@ -423,4 +423,75 @@ class SupplierSubmissionDecisionRequest(BaseModel):
     idempotency_key: str = Field(min_length=4, max_length=100)
 
 
+class PublishProcurementRequest(BaseModel):
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class SupplierRequestResponseRequest(BaseModel):
+    available_quantity_packs: int = Field(gt=0, le=10000000)
+    unit_price: float = Field(gt=0, le=10000000)
+    currency: str = Field(min_length=3, max_length=3)
+    lead_time_days: int = Field(gt=0, le=365)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+    @field_validator("currency")
+    @classmethod
+    def uppercase_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class LifecycleEvent(BaseModel):
+    id: str
+    event_type: str
+    message: str
+    actor_role: str
+    created_at: datetime
+
+
+class Notification(BaseModel):
+    id: str
+    request_id: str | None = None
+    title: str
+    message: str
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationReadRequest(BaseModel):
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class SupplierRequestResponse(BaseModel):
+    id: str
+    request_id: str
+    supplier_id: str
+    available_quantity_packs: int
+    unit_price: float
+    currency: str
+    lead_time_days: int
+    status: Literal["submitted", "approved", "rejected", "clarification_requested", "evidence_changed"]
+    review_id: str | None = None
+    created_at: datetime
+
+
+class ProcurementLifecycle(BaseModel):
+    id: str
+    trace_id: str
+    conversation_id: str
+    buyer_id: str
+    request: ProcurementRequest
+    status: Literal["open_for_responses", "responses_received", "review_pending", "approved", "rejected", "clarification_requested"]
+    invited_supplier_count: int
+    responses: list[SupplierRequestResponse] = []
+    events: list[LifecycleEvent] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+class SupplierRequestAssignment(BaseModel):
+    request: ProcurementLifecycle
+    invitation_status: Literal["invited", "responded"]
+    supplier_response: SupplierRequestResponse | None = None
+
+
 SupplierDashboardSummary.model_rebuild()

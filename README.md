@@ -2,7 +2,7 @@
 
 Procura is a pharmaceutical procurement operations workspace that converts conversational requests into consistent, auditable supplier decisions.
 
-The bundled local dataset uses fictional suppliers, quotes, authorizations, and scenarios. Procura supports procurement review; it does not place orders, contact suppliers, approve compliance, or provide legal or regulatory advice.
+The bundled local dataset uses fictional suppliers, quotes, authorizations, and scenarios. Procura supports procurement review and internal supplier-portal responses; it does not place orders, send external supplier communications, approve compliance, or provide legal or regulatory advice.
 
 ## Why it stands out
 
@@ -13,6 +13,7 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 - Unsafe outcomes create persistent human-review cases. Reviewer actions are idempotent, timestamped, and do not create transactions.
 - Supplier and quote records are loaded from the database at runtime; supplier-submitted changes require staff verification before becoming active evidence.
 - AI-first role workflows reduce form work without bypassing control: suppliers turn one offer description into a typed quotation draft, and reviewers receive an evidence-grounded suggested action before recording their own decision.
+- A buyer can open one interpreted request to matching supplier portals. Invited suppliers respond against the buyer's locked medicine variant, staff revalidates current evidence before approval, and every role sees stored notifications and a request timeline.
 - Buyers search a database-backed medicine index before starting a request. The API filters server-side and returns at most six focused results to the workspace, with current supplier, quotation, and delivery evidence.
 - Shared trace IDs connect local metrics, optional Langfuse observations, and privacy-safe Sentry errors.
 - Twelve readable deterministic evaluations and separate backend/frontend gate tests.
@@ -76,7 +77,7 @@ Email: supplier@procura.example
 Password: Procura-Supplier-2026!
 ```
 
-Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. Changes remain pending until a reviewer approves them. Suppliers cannot access buyer conversations or staff operations.
+Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. They can also respond to buyer requests sent to their linked medicine coverage without viewing the buyer conversation. Changes and request-specific offers remain pending until staff review. Suppliers cannot access unrelated requests or staff operations.
 
 Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, `/operations`, and `/admin`. Role checks are enforced by the API as well as the interface.
 
@@ -144,6 +145,8 @@ make down    # stop Docker services
 | `POST` | `/api/supplier/submissions/profile` | Linked supplier |
 | `POST` | `/api/supplier/submissions/quotes` | Linked supplier |
 | `POST` | `/api/supplier/quote-drafts` | Linked supplier |
+| `GET` | `/api/supplier/requests` | Linked supplier invitations |
+| `POST` | `/api/supplier/requests/{id}/responses` | Invited linked supplier |
 | `GET` | `/api/supplier-submissions` | Reviewer or admin |
 | `POST` | `/api/supplier-submissions/{id}/decision` | Reviewer or admin |
 | `POST` | `/api/conversations` | Buyer or admin |
@@ -152,6 +155,11 @@ make down    # stop Docker services
 | `GET` | `/api/reviews` | Reviewer or admin |
 | `GET` | `/api/reviews/{id}/brief` | Reviewer or admin |
 | `POST` | `/api/reviews/{id}/decision` | Reviewer or admin |
+| `POST` | `/api/executions/{trace_id}/publish` | Owning buyer or admin |
+| `GET` | `/api/procurement-requests` | Buyer or staff, role scoped |
+| `GET` | `/api/procurement-requests/{id}` | Authorized request participant |
+| `GET` | `/api/notifications` | Signed-in account |
+| `POST` | `/api/notifications/{id}/read` | Notification owner |
 | `GET` | `/api/operations/summary` | Admin |
 | `GET` | `/api/admin/overview` | Admin |
 | `GET` | `/api/admin/users?q=&role=&status=&page=1&limit=20` | Admin |

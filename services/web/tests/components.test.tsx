@@ -338,3 +338,42 @@ describe("guided product journey", () => {
     expect(window.location.pathname).toBe("/operations/traces/trace-operations-1");
   });
 });
+
+describe("connected procurement lifecycle", () => {
+  const createdAt = new Date().toISOString();
+  const request = { id:"request-connected",synthetic:true as const,medicine:{medicine_name:"amoxicillin",strength:"500 mg",dosage_form:"capsule",quantity:2000,pack_size:100,unit:"packs",cold_chain_required:false},destination:"Ghana",max_lead_time_days:21,currency:"USD" };
+  const result: AgentResponse = { conversation_id:"conversation-connected",message:{id:"assistant-connected",role:"assistant",content:"Northstar is recommended.",created_at:createdAt},progress_events:[],request,quotes:[],decision:{status:"recommended",recommendation_supplier_id:"northstar",summary:"Northstar is recommended.",human_review_required:false,escalation_reasons:[],policy_version:"procura-policy-v1",trace_id:"trace-connected",no_transaction_completed:true} };
+  const lifecycle = { id:"lifecycle-connected",trace_id:"trace-connected",conversation_id:"conversation-connected",buyer_id:"buyer-connected",request,status:"open_for_responses" as const,invited_supplier_count:2,responses:[],events:[{id:"event-1",event_type:"request_published",message:"Amoxicillin opened for responses from 2 matching suppliers.",actor_role:"buyer",created_at:createdAt}],created_at:createdAt,updated_at:createdAt };
+
+  it("lets a buyer explicitly open an interpreted request to matching suppliers", async () => {
+    window.localStorage.setItem("procura-guide:buyer-connected", "seen"); window.history.replaceState({}, "", "/workspace");
+    vi.spyOn(api, "me").mockResolvedValueOnce({id:"buyer-connected",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt});
+    vi.spyOn(api, "notifications").mockResolvedValue([]); vi.spyOn(api, "createConversation").mockResolvedValue({id:"conversation-connected",messages:[]});
+    vi.spyOn(api, "sendMessage").mockResolvedValue(result); const publish = vi.spyOn(api, "publishExecution").mockResolvedValue(lifecycle);
+    render(<Home/>);
+    fireEvent.change(await screen.findByLabelText("Procurement request"), {target:{value:"2,000 packs of amoxicillin"}}); fireEvent.click(screen.getByRole("button", {name:"Send procurement request"}));
+    fireEvent.click(await screen.findByRole("button", {name:/open to matching suppliers/i}));
+    expect(await screen.findByText("Open for supplier responses")).toBeVisible(); expect(screen.getByText(/2 matching suppliers can now respond/i)).toBeVisible(); expect(publish).toHaveBeenCalledWith("trace-connected");
+  });
+
+  it("lets an invited supplier submit an offer scoped to one buyer request", async () => {
+    window.localStorage.setItem("procura-guide:supplier-connected", "seen"); window.history.replaceState({}, "", "/supplier");
+    const supplier = {id:"northstar",display_name:"Northstar Health Supply",authorization:{status:"authorized",expiry_date:"2028-12-31"},capability:{destinations:["Ghana"],cold_chain:true},reliability_score:.94,quotes:[]};
+    vi.spyOn(api, "me").mockResolvedValueOnce({id:"supplier-connected",email:"supplier@procura.example",display_name:"Supplier",organization:"Northstar",role:"supplier",created_at:createdAt});
+    vi.spyOn(api, "notifications").mockResolvedValue([]); vi.spyOn(api, "supplierDashboard").mockResolvedValue({supplier,quote_count:0,eligible_destination_count:1,compliance_state:"authorized",submissions:[]});
+    vi.spyOn(api, "supplierRequests").mockResolvedValue([{request:lifecycle,invitation_status:"invited"}]); const respond = vi.spyOn(api, "respondToSupplierRequest").mockResolvedValue({id:"response-1",request_id:lifecycle.id,supplier_id:"northstar",available_quantity_packs:2200,unit_price:5.1,currency:"USD",lead_time_days:18,status:"submitted",review_id:"review-1",created_at:createdAt});
+    render(<Home/>); fireEvent.click(await screen.findByRole("button", {name:/amoxicillin 500 mg/i}));
+    fireEvent.change(screen.getAllByLabelText("Price per pack")[0], {target:{value:"5.10"}}); fireEvent.change(screen.getAllByLabelText("Lead time (days)")[0], {target:{value:"18"}}); fireEvent.click(screen.getByRole("button", {name:"Submit response for review"}));
+    await waitFor(() => expect(respond).toHaveBeenCalledWith(lifecycle.id, {available_quantity_packs:2000,unit_price:5.1,currency:"USD",lead_time_days:18}));
+  });
+
+  it("shows persistent role notifications and records a read action", async () => {
+    window.localStorage.setItem("procura-guide:buyer-notice", "seen");
+    vi.spyOn(api, "me").mockResolvedValueOnce({id:"buyer-notice",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt});
+    vi.spyOn(api, "customerDashboard").mockResolvedValue({conversation_count:0,execution_count:0,recommendation_count:0,review_count:0,recent_decisions:[]}); vi.spyOn(api, "procurementRequests").mockResolvedValue([]);
+    const notification = {id:"notice-1",request_id:lifecycle.id,title:"Supplier response received",message:"Northstar submitted an offer.",is_read:false,created_at:createdAt};
+    vi.spyOn(api, "notifications").mockResolvedValueOnce([notification]).mockResolvedValueOnce([{...notification,is_read:true}]); const mark = vi.spyOn(api, "readNotification").mockResolvedValue({...notification,is_read:true});
+    render(<Home/>); fireEvent.click(await screen.findByRole("button", {name:/notifications/i})); fireEvent.click(await screen.findByRole("button", {name:/supplier response received/i}));
+    await waitFor(() => expect(mark).toHaveBeenCalledWith("notice-1"));
+  });
+});

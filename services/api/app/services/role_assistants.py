@@ -61,9 +61,15 @@ def create_review_brief(case: HumanReviewCase, provider: str) -> ReviewBrief:
     clarification_markers = ("missing information", "ambiguous", "pack size mismatch", "currency mismatch", "conflicting")
     normalized_reasons = [reason.replace("_", " ").lower() for reason in case.reasons]
     suggested_action = "request_clarification" if any(marker in reason for marker in clarification_markers for reason in normalized_reasons) else "reject"
-    if case.recommendation_supplier_id and not case.reasons:
+    recommended_quotes = [quote for quote in case.quotes if quote.supplier_id == case.recommendation_supplier_id]
+    if recommended_quotes and all(quote.eligible for quote in recommended_quotes):
         suggested_action = "approve"
-    reason = "Resolve missing or conflicting request evidence before a decision." if suggested_action == "request_clarification" else "The current evidence does not support an autonomous approval."
+    if suggested_action == "approve":
+        reason = "The recommended supplier passed the deterministic checks; organizational approval is still required."
+    elif suggested_action == "request_clarification":
+        reason = "Resolve missing or conflicting request evidence before a decision."
+    else:
+        reason = "The current evidence does not support an approval."
     return ReviewBrief(
         review_id=case.id,
         trace_id=case.trace_id,
