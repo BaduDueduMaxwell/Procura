@@ -1,4 +1,4 @@
-import type { AgentResponse, AuthUser, Conversation, CustomerDashboard, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierSubmission, Trace } from "./types";
+import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, Conversation, CustomerDashboard, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierSubmission, Trace } from "./types";
 import * as Sentry from "@sentry/nextjs";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
@@ -61,6 +61,13 @@ export const api = {
   reviewBrief: (id: string) => request<ReviewBrief>(`/api/reviews/${id}/brief`),
   decideReview: (id: string, action: "approve" | "reject" | "request_clarification", note: string) => request<ReviewCase>(`/api/reviews/${id}/decision`, { method: "POST", body: JSON.stringify({ action, note, idempotency_key: crypto.randomUUID() }) }),
   operations: () => request<Operations>("/api/operations/summary"),
+  adminOverview: () => request<AdminOverview>("/api/admin/overview"),
+  adminUsers: (query = "", role = "", status = "", page = 1, limit = 20) => {
+    const params = new URLSearchParams({ q: query, page: String(page), limit: String(limit) });
+    if (role) params.set("role", role);
+    if (status) params.set("status", status);
+    return request<AdminUserPage>(`/api/admin/users?${params}`);
+  },
   trace: (id: string) => request<Trace>(`/api/traces/${id}`),
   simulateTimeout: () => request<AgentResponse>("/api/dev/simulate-tool-timeout", { method: "POST" })
 };

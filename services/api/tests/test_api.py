@@ -8,7 +8,7 @@ from app.agent.providers import (
 )
 from app.domain.models import ProcurementRequest
 from app.main import service
-from app.models.database import ResourceOwnerRow, SessionLocal
+from app.models.database import ResourceOwnerRow, ReviewRow, SessionLocal
 from sqlalchemy import select
 
 
@@ -55,6 +55,59 @@ def test_health_and_happy_path(client):
     assert response.status_code == 200
     body = response.json(); assert body["decision"]["status"] == "recommended" and body["decision"]["recommendation_supplier_id"] == "northstar"
     assert body["decision"]["no_transaction_completed"]
+
+
+def test_close_medicine_typo_requires_confirmation_before_evaluation(client):
+    class TypoProvider(DeterministicLLMProvider):
+        async def interpret(self, text, previous=None):
+            return ProviderInterpretation(
+                request=ProcurementRequest.model_validate({
+                    "medicine": {"medicine_name": "ameprazole", "strength": "20mg", "dosage_form": "capsule", "quantity": 600, "pack_size": 28},
+                    "destination": "Ghana", "max_lead_time_days": 18, "currency": "USD",
+                }),
+                tool_plan=REQUIRED_TOOL_PLAN.copy(),
+            )
+
+    original = service.provider
+    service.provider = TypoProvider()
+    try:
+        cid = new_conversation(client)
+        first = client.post(f"/api/conversations/{cid}/messages", json={"content": "We need ameprazole 20 mg capsules, pack size 28, 600 packs, to Accra within 18 days in USD", "idempotency_key": "typo-01"}).json()
+        assert first["decision"]["status"] == "clarification"
+        assert "Did you mean omeprazole?" in first["message"]["content"]
+        with SessionLocal() as db:
+            assert list(db.scalars(select(ReviewRow)).all()) == []
+
+        second = client.post(f"/api/conversations/{cid}/messages", json={"content": "Yes", "idempotency_key": "typo-02"}).json()
+        assert second["request"]["medicine"]["medicine_name"] == "omeprazole"
+        assert second["request"]["medicine"]["strength"] == "20 mg"
+        assert second["decision"]["status"] == "recommended"
+    finally:
+        service.provider = original
+
+
+def test_admin_control_center_is_scoped_searchable_and_secret_free(client):
+    authenticate(client)
+    assert client.get("/api/admin/overview").status_code == 403
+    assert client.get("/api/admin/users").status_code == 403
+
+    login_admin(client)
+    overview = client.get("/api/admin/overview")
+    assert overview.status_code == 200
+    summary = overview.json()
+    assert summary["total_users"] >= 4
+    assert summary["medicine_count"] == 20
+    assert summary["quotation_count"] >= summary["medicine_count"]
+    assert set(summary["users_by_role"]) == {"buyer", "supplier", "reviewer", "admin"}
+
+    response = client.get("/api/admin/users?q=operations&role=admin&status=active&page=1&limit=20")
+    assert response.status_code == 200
+    page = response.json()
+    assert page["total"] == 1
+    assert page["items"][0]["role"] == "admin"
+    assert page["items"][0]["is_active"] is True
+    assert "password_hash" not in page["items"][0]
+    assert "session" not in page["items"][0]
 
 
 def test_buyer_can_reopen_persisted_decision_and_other_buyer_cannot(client):

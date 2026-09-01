@@ -1,4 +1,6 @@
+import re
 from datetime import UTC, date, datetime
+from difflib import get_close_matches
 from statistics import median
 
 from app.domain.models import (
@@ -10,23 +12,53 @@ from app.domain.models import (
     SupplierQuote,
     ToolResult,
 )
+from app.services.catalog_terms import CATALOG_MEDICINES
 
 
-def normalize_procurement_request(request: ProcurementRequest) -> ProcurementRequest:
-    data = request.model_dump()
-    med = data["medicine"]
-    for key in ("medicine_name", "strength", "dosage_form"):
-        if med.get(key): med[key] = " ".join(med[key].strip().lower().split())
-    dosage_forms = {
+def canonicalize_strength(value: str | None) -> str | None:
+    """Return one comparison-safe representation for medicine strengths."""
+    if not value:
+        return None
+    normalized = " ".join(value.strip().lower().split())
+    normalized = re.sub(r"\s*/\s*", "/", normalized)
+    normalized = re.sub(r"(?<=\d)(?=[a-z])", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized
+
+
+def canonicalize_medicine_name(value: str | None) -> str | None:
+    return " ".join(value.strip().lower().split()) if value else None
+
+
+def canonicalize_dosage_form(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = " ".join(value.strip().lower().split())
+    return {
         "tablets": "tablet",
         "capsules": "capsule",
         "vials": "vial",
         "bottles": "bottle",
         "sachets": "sachet",
         "ampoules": "ampoule",
-    }
-    if med.get("dosage_form"):
-        med["dosage_form"] = dosage_forms.get(med["dosage_form"], med["dosage_form"])
+    }.get(normalized, normalized)
+
+
+def suggest_catalog_medicine(value: str | None) -> str | None:
+    """Suggest one close catalog name without silently changing user intent."""
+    normalized = canonicalize_medicine_name(value)
+    if not normalized or normalized in CATALOG_MEDICINES:
+        return None
+    matches = get_close_matches(normalized, CATALOG_MEDICINES, n=1, cutoff=0.78)
+    return matches[0] if matches else None
+
+
+def normalize_procurement_request(request: ProcurementRequest) -> ProcurementRequest:
+    data = request.model_dump()
+    med = data["medicine"]
+    med["medicine_name"] = canonicalize_medicine_name(med.get("medicine_name"))
+    med["strength"] = canonicalize_strength(med.get("strength"))
+    med["dosage_form"] = canonicalize_dosage_form(med.get("dosage_form"))
     if med.get("unit"):
         unit = " ".join(med["unit"].strip().lower().split())
         med["unit"] = {"pack": "packs", "unit": "units"}.get(unit, unit)
@@ -44,7 +76,17 @@ def normalize_procurement_request(request: ProcurementRequest) -> ProcurementReq
 
 
 def search_synthetic_suppliers(request: ProcurementRequest, suppliers: list[Supplier]) -> list[tuple[Supplier, SupplierQuote]]:
-    return [(s, q) for s in suppliers for q in s.quotes if q.line.medicine_name == request.medicine.medicine_name and q.line.strength == request.medicine.strength and q.line.dosage_form == request.medicine.dosage_form]
+    medicine = canonicalize_medicine_name(request.medicine.medicine_name)
+    strength = canonicalize_strength(request.medicine.strength)
+    dosage_form = canonicalize_dosage_form(request.medicine.dosage_form)
+    return [
+        (supplier, quote)
+        for supplier in suppliers
+        for quote in supplier.quotes
+        if canonicalize_medicine_name(quote.line.medicine_name) == medicine
+        and canonicalize_strength(quote.line.strength) == strength
+        and canonicalize_dosage_form(quote.line.dosage_form) == dosage_form
+    ]
 
 
 def validate_supplier_authorization(supplier: Supplier, today: date | None = None) -> ToolResult:

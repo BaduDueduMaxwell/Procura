@@ -18,6 +18,13 @@ Feature: Role-specific Procura access
     Then procurement, request review, supplier approval, and operations routes are available
     And the administrator cannot impersonate a supplier portal account
 
+  Scenario: An administrator inspects real operational inventory safely
+    Given users, suppliers, quotations, medicines, and review work exist in the database
+    When the administrator opens the control center
+    Then real counts and searchable paginated account records are shown
+    And password hashes and session records are never returned
+    And a buyer, supplier, or reviewer cannot open those endpoints
+
   Scenario: Public users cannot grant themselves staff access
     Given the public signup form
     When a user requests a reviewer or administrator role

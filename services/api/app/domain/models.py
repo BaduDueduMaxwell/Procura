@@ -167,6 +167,7 @@ class Conversation(BaseModel):
     id: str
     messages: list[Message] = []
     draft: ProcurementRequest | None = None
+    pending_medicine_suggestion: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -238,6 +239,29 @@ class AuthUser(BaseModel):
     organization: str
     role: Literal["buyer", "supplier", "reviewer", "admin"]
     created_at: datetime
+
+
+class AdminUserSummary(AuthUser):
+    is_active: bool
+
+
+class AdminUserPage(BaseModel):
+    items: list[AdminUserSummary]
+    total: int
+    page: int
+    limit: int
+
+
+class AdminOverview(BaseModel):
+    total_users: int
+    active_users: int
+    users_by_role: dict[str, int]
+    supplier_count: int
+    medicine_count: int
+    medicine_variant_count: int
+    quotation_count: int
+    open_review_count: int
+    pending_supplier_submission_count: int
 
 
 class SignupRequest(BaseModel):

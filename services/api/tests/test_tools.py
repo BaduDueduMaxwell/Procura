@@ -4,11 +4,13 @@ from app.domain.models import MedicineRequirement, ProcurementRequest
 from app.services.catalog_terms import CATALOG_MEDICINES
 from app.services.seed import synthetic_suppliers
 from app.services.tools import (
+    canonicalize_strength,
     compare_quote_prices,
     evaluate_quote,
     normalize_procurement_request,
     rank_eligible_quotes,
     search_synthetic_suppliers,
+    suggest_catalog_medicine,
     validate_cold_chain_capability,
     validate_delivery_deadline,
     validate_destination_support,
@@ -25,6 +27,20 @@ def request(**changes):
 def test_normalization_and_missing_fields():
     normalized = request(); assert normalized.medicine.medicine_name == "amoxicillin" and normalized.currency == "USD" and not normalized.missing_fields()
     assert "pack size" in ProcurementRequest(medicine=MedicineRequirement()).missing_fields()
+
+
+def test_strength_variants_use_one_canonical_representation():
+    assert canonicalize_strength("500mg") == "500 mg"
+    assert canonicalize_strength("20 / 120MG") == "20/120 mg"
+    assert canonicalize_strength("100units / ml") == "100 units/ml"
+    compact = request(medicine=MedicineRequirement(medicine_name="paracetamol", strength="500mg", dosage_form="tablets", quantity=1500, pack_size=20))
+    assert compact.medicine.strength == "500 mg"
+    assert search_synthetic_suppliers(compact, synthetic_suppliers())
+
+
+def test_catalog_typo_is_suggested_but_never_silently_changed():
+    assert suggest_catalog_medicine("ameprazole") == "omeprazole"
+    assert suggest_catalog_medicine("made-up-product") is None
 
 
 def test_normalization_maps_supported_destination_cities_to_countries():

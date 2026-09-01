@@ -8,10 +8,13 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from app.config import get_settings
 from app.domain.models import (
+    AdminOverview,
+    AdminUserPage,
+    AdminUserSummary,
     AgentResponse,
     AuthUser,
     Conversation,
@@ -63,6 +66,7 @@ from app.services.catalog import list_medicine_catalog
 from app.services.role_assistants import create_review_brief, draft_supplier_quote
 from app.services.scope import SCOPE_REJECTION_TOOL
 from app.services.seed import seed_supplier_database, synthetic_suppliers
+from app.services.tools import canonicalize_dosage_form, canonicalize_medicine_name, canonicalize_strength
 
 settings = get_settings()
 policy = settings.policy_path.read_text()
@@ -310,9 +314,9 @@ def decide_supplier_submission(submission_id: str, body: SupplierSubmissionDecis
                     quote = existing_quote or QuoteRow(id=f"supplier-quote-{row.id}", supplier_id=row.supplier_id)
                     quote.currency = payload["currency"]
                     quote.lead_time_days = payload["lead_time_days"]
-                    quote.medicine_name = payload["medicine_name"]
-                    quote.strength = payload["strength"]
-                    quote.dosage_form = payload["dosage_form"]
+                    quote.medicine_name = canonicalize_medicine_name(payload["medicine_name"])
+                    quote.strength = canonicalize_strength(payload["strength"])
+                    quote.dosage_form = canonicalize_dosage_form(payload["dosage_form"])
                     quote.pack_size = payload["pack_size"]
                     quote.quantity_packs = payload["available_quantity_packs"]
                     quote.unit_price = payload["unit_price"]
@@ -438,6 +442,63 @@ def operations(_: AuthUser = Depends(admin_user)):
         eval_path = Path(__file__).parents[1] / "evals" / "results" / "latest.json"
         eval_rate = json.loads(eval_path.read_text()).get("pass_rate") if eval_path.exists() else None
         return OperationsSummary(request_count=len(rows), autonomous_recommendation_count=sum(r.decision == "recommended" for r in rows), human_review_count=sum(r.decision in ("review_required", "failed_safe") for r in rows), error_count=sum(r.decision == "failed_safe" for r in rows), p50_latency_ms=p50, p95_latency_ms=p95, token_usage=sum(measured_tokens) if measured_tokens else None, estimated_cost_usd=round(sum(measured_costs), 6) if measured_costs else None, evaluation_pass_rate=eval_rate, langfuse_status="Configured" if observability.langfuse_enabled else "Langfuse not configured", sentry_status="Configured" if observability.sentry_enabled else "Sentry not configured", recent_traces=traces)
+
+
+@app.get("/api/admin/overview", response_model=AdminOverview)
+def admin_overview(_: AuthUser = Depends(admin_user)):
+    """Return operational inventory counts without credentials or session data."""
+    with SessionLocal() as db:
+        users = list(db.scalars(select(UserRow)).all())
+        quotes = list(db.scalars(select(QuoteRow)).all())
+        reviews = [HumanReviewCase.model_validate_json(row.data) for row in db.scalars(select(ReviewRow)).all()]
+        roles = {role: sum(user.role == role for user in users) for role in ("buyer", "supplier", "reviewer", "admin")}
+        variants = {(quote.medicine_name, quote.strength, quote.dosage_form, quote.pack_size) for quote in quotes}
+        medicines = {quote.medicine_name for quote in quotes}
+        return AdminOverview(
+            total_users=len(users),
+            active_users=sum(user.is_active for user in users),
+            users_by_role=roles,
+            supplier_count=db.scalar(select(func.count()).select_from(SupplierRow)) or 0,
+            medicine_count=len(medicines),
+            medicine_variant_count=len(variants),
+            quotation_count=len(quotes),
+            open_review_count=sum(review.status == "open" for review in reviews),
+            pending_supplier_submission_count=db.scalar(select(func.count()).select_from(SupplierSubmissionRow).where(SupplierSubmissionRow.status == "pending")) or 0,
+        )
+
+
+@app.get("/api/admin/users", response_model=AdminUserPage)
+def admin_users(
+    q: str = Query(default="", max_length=120),
+    role: str | None = Query(default=None, pattern="^(buyer|supplier|reviewer|admin)$"),
+    status: str | None = Query(default=None, pattern="^(active|inactive)$"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    _: AuthUser = Depends(admin_user),
+):
+    normalized = " ".join(q.lower().split())
+    filters = []
+    if normalized:
+        filters.append(or_(
+            func.lower(UserRow.email).contains(normalized, autoescape=True),
+            func.lower(UserRow.display_name).contains(normalized, autoescape=True),
+            func.lower(UserRow.organization).contains(normalized, autoescape=True),
+        ))
+    if role:
+        filters.append(UserRow.role == role)
+    if status:
+        filters.append(UserRow.is_active.is_(status == "active"))
+    query = select(UserRow).where(*filters)
+    count_query = select(func.count()).select_from(UserRow).where(*filters)
+    with SessionLocal() as db:
+        total = db.scalar(count_query) or 0
+        rows = list(db.scalars(query.order_by(UserRow.created_at.desc()).offset((page - 1) * limit).limit(limit)).all())
+    return AdminUserPage(
+        items=[AdminUserSummary(**public_user(row).model_dump(), is_active=row.is_active) for row in rows],
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
 
 @app.post("/api/dev/simulate-tool-timeout")

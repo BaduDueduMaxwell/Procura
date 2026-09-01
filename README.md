@@ -78,14 +78,16 @@ Password: Procura-Supplier-2026!
 
 Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. Changes remain pending until a reviewer approves them. Suppliers cannot access buyer conversations or staff operations.
 
-Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, and `/operations`. Role checks are enforced by the API as well as the interface.
+Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, `/operations`, and `/admin`. Role checks are enforced by the API as well as the interface.
 
 | Role | Default route | Access |
 |---|---|---|
 | Buyer | `/dashboard` | Dashboard and procurement workspace |
 | Supplier | `/supplier` | Its linked supplier profile, quotation drafting, quotations, and submission history |
 | Reviewer | `/reviews` | Evidence briefs, procurement decisions, and supplier approvals |
-| Operations admin | `/operations` | Every internal buyer, review, supplier-approval, and operations route; no supplier impersonation |
+| Operations admin | `/operations` | Every internal buyer, review, supplier-approval, operations, and read-only administration route; no supplier impersonation |
+
+The administration control center shows real database counts and searchable, paginated account records without exposing password hashes or sessions. It also summarizes supplier, quotation, medicine-variant, open-review, and pending-submission inventory. Medicine search is backed by approved supplier quotation records rather than UI constants.
 
 ### Run without Docker
 
@@ -151,6 +153,8 @@ make down    # stop Docker services
 | `GET` | `/api/reviews/{id}/brief` | Reviewer or admin |
 | `POST` | `/api/reviews/{id}/decision` | Reviewer or admin |
 | `GET` | `/api/operations/summary` | Admin |
+| `GET` | `/api/admin/overview` | Admin |
+| `GET` | `/api/admin/users?q=&role=&status=&page=1&limit=20` | Admin |
 | `GET` | `/api/traces/{id}` | Owner or admin |
 | `GET` | `/health` | Public |
 
@@ -216,7 +220,7 @@ cd services/web && npm test -- --run
 cd ../api && python evals/run.py
 ```
 
-Deterministic evaluations cover eligible selection, delivery failure, missing/expired authorization, ambiguity, pack size, destination, cold chain, currency, price anomaly, no eligible quote, and tool timeout. The CI threshold is documented in the eval runner and must be met from actual output; results are written to `services/api/evals/results/latest.json` and `latest.md`.
+The latest deterministic run passed **15/15 scenarios (100%)** against a 90% threshold. It covers eligible selection, delivery failure, missing/expired authorization, ambiguity, pack size, destination, cold chain, currency, price anomaly, no eligible quote, tool timeout, out-of-scope follow-ups, compact strength formatting, and medicine typo confirmation. Results are generated from actual executions and written to `services/api/evals/results/latest.json` and `latest.md`.
 
 ## Deployment and observability
 

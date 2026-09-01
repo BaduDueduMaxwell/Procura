@@ -58,6 +58,16 @@ async def test_demo_provider_is_predictable():
 
 
 @pytest.mark.asyncio
+async def test_demo_provider_preserves_unknown_medicine_for_catalog_confirmation():
+    request = await DeterministicLLMProvider().extract(
+        "We need 600 packs of ameprazole 20 mg capsules, pack size 28, delivered to Accra within 18 days in USD"
+    )
+
+    assert request.medicine.medicine_name == "ameprazole"
+    assert request.medicine.strength == "20 mg"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "medicine", "strength", "form"),
     [

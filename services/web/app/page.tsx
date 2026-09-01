@@ -1,14 +1,14 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Activity, ArrowRight, ArrowUp, Building2, Check, ChevronLeft, CircleHelp, ClipboardCheck, FileSearch, LayoutDashboard, LogOut, MessageSquareText, PackageCheck, PanelRight, Plus, RefreshCw, Search, Send, Shield, TriangleAlert, WifiOff, X } from "lucide-react";
+import { Activity, ArrowRight, ArrowUp, Building2, Check, ChevronLeft, ChevronRight, CircleHelp, ClipboardCheck, FileSearch, LayoutDashboard, LogOut, MessageSquareText, PackageCheck, PanelRight, Plus, RefreshCw, Search, Send, Shield, TriangleAlert, UsersRound, WifiOff, X } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AgentResponse, AuthUser, CustomerDashboard as CustomerDashboardData, DashboardDecision, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard as SupplierDashboardData, SupplierQuoteDraft, SupplierSubmission } from "@/lib/types";
+import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, CustomerDashboard as CustomerDashboardData, DashboardDecision, MedicineCatalogItem, Operations, ReviewBrief, ReviewCase, SupplierDashboard as SupplierDashboardData, SupplierQuoteDraft, SupplierSubmission } from "@/lib/types";
 import { DecisionCards, formatReviewReason } from "@/components/DecisionCards";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { StatusBadge } from "@/components/StatusBadge";
 
-type Screen = "dashboard" | "chat" | "supplier" | "reviews" | "supplierReviews" | "operations";
+type Screen = "dashboard" | "chat" | "supplier" | "reviews" | "supplierReviews" | "operations" | "admin";
 type TourStep = { title: string; description: string; screen: Screen; target?: string };
 type Notice = { id: number; title: string; detail: string; tone: "progress" | "success" | "attention" | "error" };
 const examples = [
@@ -16,7 +16,7 @@ const examples = [
   "300 packs of insulin 100 units/ml vials, pack size 10, cold chain, delivered to Ghana within 21 days in USD.",
   "We need ceftriaxone delivered to Nairobi."
 ];
-const screenRoutes: Record<Screen, string> = { dashboard: "/dashboard", chat: "/workspace", reviews: "/reviews", supplierReviews: "/reviews/suppliers", operations: "/operations", supplier: "/supplier" };
+const screenRoutes: Record<Screen, string> = { dashboard: "/dashboard", chat: "/workspace", reviews: "/reviews", supplierReviews: "/reviews/suppliers", operations: "/operations", admin: "/admin", supplier: "/supplier" };
 
 function medicineLabel(name?: string, strength?: string, fallback = "Incomplete request") {
   if (!name) return fallback;
@@ -37,6 +37,7 @@ function screenForPath(path: string): Screen | undefined {
   if (path === "/reviews/suppliers" || path.startsWith("/reviews/suppliers/")) return "supplierReviews";
   if (path === "/reviews" || path.startsWith("/reviews/")) return "reviews";
   if (path === "/operations" || path.startsWith("/operations/traces/")) return "operations";
+  if (path === "/admin") return "admin";
   if (path === "/supplier" || path.startsWith("/supplier/")) return "supplier";
   return undefined;
 }
@@ -45,7 +46,7 @@ function allowedScreen(user: AuthUser, requested?: Screen): Screen {
   if (user.role === "supplier") return "supplier";
   if (user.role === "reviewer") return requested === "supplierReviews" ? "supplierReviews" : "reviews";
   if (user.role === "admin") return !requested || requested === "supplier" ? "operations" : requested;
-  if (!requested || requested === "supplier" || requested === "reviews" || requested === "supplierReviews" || requested === "operations") return "dashboard";
+  if (!requested || requested === "supplier" || requested === "reviews" || requested === "supplierReviews" || requested === "operations" || requested === "admin") return "dashboard";
   return requested;
 }
 
@@ -125,7 +126,6 @@ export default function Home() {
     const timer = window.setTimeout(() => openDecision(decodeURIComponent(traceId), true), 0);
     return () => window.clearTimeout(timer);
   }, [openDecision, user]);
-  useEffect(() => { if (user && ["buyer", "admin"].includes(user.role)) api.createConversation().then(conversation => setConversationId(conversation.id)).catch(() => setError("The Procura API is offline. Start the backend, then retry.")); }, [user]);
   useEffect(() => { endRef.current?.scrollIntoView?.({ behavior: "smooth" }); }, [messages, progress]);
   useEffect(() => {
     if (!user) return;
@@ -157,7 +157,7 @@ export default function Home() {
       if (!id) { id = (await api.createConversation()).id; setConversationId(id); }
       const result = await api.sendMessage(id, content);
       setInput("");
-      setProgress("Recommendation ready"); setLatest(result);
+      setProgress(result.decision.status === "recommended" ? "Recommendation ready" : result.decision.status === "clarification" ? "Clarification ready" : "Review handoff ready"); setLatest(result);
       setMessages(current => [...current, { role: "assistant", content: result.message.content, result }]);
       if (result.decision.status === "recommended") notify("Review complete", "An eligible supplier recommendation is ready.", "success");
       else if (result.decision.status === "clarification") notify("More information needed", "Answer the clarification to continue the review.", "attention");
@@ -199,6 +199,7 @@ export default function Home() {
     {screen === "reviews" && <Reviews />}
     {screen === "supplierReviews" && <SupplierSubmissionReviews />}
     {screen === "operations" && <OperationsScreen />}
+    {screen === "admin" && user.role === "admin" && <AdminControlCenter />}
     <div className="toast-region" aria-live="polite" aria-label="Request notifications">{notices.map(notice => <div className={`toast toast-${notice.tone}`} key={notice.id} role="status"><span className="toast-indicator"/><div><strong>{notice.title}</strong><p>{notice.detail}</p></div><button onClick={() => setNotices(current => current.filter(item => item.id !== notice.id))} aria-label={`Dismiss ${notice.title}`}><X size={15}/></button></div>)}</div>
     {tourStep !== null && <ProductTour user={user} stepIndex={tourStep} onStep={setTourStep} onNavigate={navigate} onClose={closeTour} />}
   </div>;
@@ -206,7 +207,7 @@ export default function Home() {
 
 function Brand() { return <div className="brand"><div className="brand-mark">P</div><div><strong>Procura</strong><span>Procurement operations</span></div></div>; }
 function Nav({ screen, setScreen, onNew, onGuide, user, onLogout }: { screen: Screen; setScreen: (s: Screen) => void; onNew: () => void; onGuide: () => void; user: AuthUser; onLogout: () => void }) {
-  const items: [Screen, string, typeof MessageSquareText][] = [["dashboard", "Dashboard", LayoutDashboard], ["chat", "Workspace", MessageSquareText], ["reviews", "Request reviews", ClipboardCheck], ["supplierReviews", "Supplier approvals", Building2], ["operations", "Operations", Activity]];
+  const items: [Screen, string, typeof MessageSquareText][] = [["dashboard", "Dashboard", LayoutDashboard], ["chat", "Workspace", MessageSquareText], ["reviews", "Request reviews", ClipboardCheck], ["supplierReviews", "Supplier approvals", Building2], ["operations", "Operations", Activity], ["admin", "Administration", UsersRound]];
   const visible = user.role === "supplier" ? [["supplier", "Supplier portal", Building2]] as [Screen, string, typeof MessageSquareText][] : user.role === "buyer" ? items.slice(0, 2) : user.role === "reviewer" ? items.slice(2, 4) : items;
   const canCreateRequest = user.role === "buyer" || user.role === "admin";
   return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{canCreateRequest && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} aria-label={label} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role === "admin" ? "operations admin" : user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
@@ -343,6 +344,60 @@ function OperationsScreen() {
   if (!data) return <main className="page-shell"><div className="progress-line"><span className="pulse-dot" />Loading measured operations…</div></main>;
   const metrics = [["Requests", data.request_count], ["Autonomous", data.autonomous_recommendation_count], ["Human review", data.human_review_count], ["Errors", data.error_count], ["p50 latency", data.p50_latency_ms ? `${data.p50_latency_ms} ms` : "Not enough data"], ["p95 latency", data.p95_latency_ms ? `${data.p95_latency_ms} ms` : "Not enough data"], ["Token usage", data.token_usage ?? "Not available"], ["Eval pass rate", data.evaluation_pass_rate != null ? `${Math.round(data.evaluation_pass_rate * 100)}%` : "Not run"]];
   return <main className="page-shell" data-tour="operations"><header className="page-head"><div><p className="eyebrow">System performance</p><h1>Operations</h1><p>Monitor procurement activity, decision outcomes, review volume, and workflow performance.</p></div></header><div className="metric-grid">{metrics.map(([label, value]) => <div className="metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="ops-grid"><section className="data-card"><div className="card-title"><h2>Recent workflow activity</h2><span>{data.recent_traces.length} records</span></div>{data.recent_traces.length ? <div className="trace-list">{data.recent_traces.map(t => <button type="button" className={selectedTrace?.trace_id === t.trace_id ? "selected" : ""} key={t.trace_id} onClick={() => { setSelectedTrace(t); window.history.pushState({}, "", `/operations/traces/${t.trace_id}`); }} aria-label={`Open ${medicineLabel(t.medicine_name, t.strength)} trace`}><span><strong>{medicineLabel(t.medicine_name, t.strength)}</strong><small>{t.decision.replaceAll("_", " ")} · {t.trace_id.slice(0, 8)}</small></span><strong>{t.latency_ms} ms</strong><ArrowRight size={14}/></button>)}</div> : <p className="muted-block">No workflow activity yet. Complete a request to create the first record.</p>}{selectedTrace && <div className="trace-detail" aria-live="polite"><div className="card-title"><h3>{medicineLabel(selectedTrace.medicine_name, selectedTrace.strength, "Trace evidence")}</h3><button type="button" onClick={() => { setSelectedTrace(undefined); window.history.pushState({}, "", "/operations"); }} aria-label="Close trace evidence"><X size={14}/></button></div><dl><div><dt>Trace ID</dt><dd><code>{selectedTrace.trace_id}</code></dd></div><div><dt>Provider</dt><dd>{selectedTrace.provider} · {selectedTrace.model}</dd></div><div><dt>Decision</dt><dd>{selectedTrace.decision.replaceAll("_", " ")}</dd></div><div><dt>Policy</dt><dd>{selectedTrace.policy_version}</dd></div><div><dt>Tokens</dt><dd>{selectedTrace.token_input ?? "Not available"} in · {selectedTrace.token_output ?? "Not available"} out</dd></div><div><dt>Tool calls</dt><dd>{selectedTrace.tool_sequence.length}</dd></div></dl></div>}</section><section className="data-card"><div className="card-title"><h2>System status</h2></div><div className="integration"><span className={data.langfuse_status === "Configured" ? "good-dot" : "neutral-dot"} /><div><strong>Trace export</strong><p>{data.langfuse_status === "Configured" ? "Connected" : "Using local records"}</p></div></div><div className="integration"><span className={data.sentry_status === "Configured" ? "good-dot" : "neutral-dot"} /><div><strong>Error monitoring</strong><p>{data.sentry_status === "Configured" ? "Connected" : "Using local logs"}</p></div></div><p className="fine-print">Procura preserves local workflow records when external monitoring is not connected.</p></section></div></main>;
+}
+
+function AdminControlCenter() {
+  const [overview, setOverview] = useState<AdminOverview>();
+  const [users, setUsers] = useState<AdminUserPage>();
+  const [medicines, setMedicines] = useState<MedicineCatalogItem[]>([]);
+  const [userQuery, setUserQuery] = useState("");
+  const [role, setRole] = useState("");
+  const [status, setStatus] = useState("");
+  const [medicineQuery, setMedicineQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState("");
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingMedicines, setLoadingMedicines] = useState(true);
+
+  useEffect(() => { api.adminOverview().then(setOverview).catch(() => setError("Administrative data is unavailable.")); }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setLoadingUsers(true);
+      api.adminUsers(userQuery.trim(), role, status, page, 20).then(setUsers).catch(() => setError("User accounts could not be loaded.")).finally(() => setLoadingUsers(false));
+    }, userQuery ? 220 : 0);
+    return () => window.clearTimeout(timer);
+  }, [userQuery, role, status, page]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setLoadingMedicines(true);
+      api.medicineCatalog(medicineQuery.trim(), 20).then(setMedicines).catch(() => setError("Medicine coverage could not be loaded.")).finally(() => setLoadingMedicines(false));
+    }, medicineQuery ? 220 : 0);
+    return () => window.clearTimeout(timer);
+  }, [medicineQuery]);
+
+  const metrics = overview ? [
+    ["User accounts", overview.total_users],
+    ["Active accounts", overview.active_users],
+    ["Suppliers", overview.supplier_count],
+    ["Medicines", overview.medicine_count],
+    ["Product variants", overview.medicine_variant_count],
+    ["Quotations", overview.quotation_count],
+    ["Open reviews", overview.open_review_count],
+    ["Pending supplier changes", overview.pending_supplier_submission_count],
+  ] : [];
+  const totalPages = users ? Math.max(1, Math.ceil(users.total / users.limit)) : 1;
+  return <main className="page-shell admin-center"><header className="page-head"><div><p className="eyebrow">Workspace administration</p><h1>Control center</h1><p>Inspect account access, supplier coverage, medicine variants, quotations, and work waiting for review.</p></div></header>
+    {error && <div className="error-state" role="alert"><TriangleAlert size={18}/><p>{error}</p></div>}
+    {!overview ? <div className="progress-line" role="status"><span className="pulse-dot"/>Loading control center…</div> : <><div className="metric-grid admin-metrics">{metrics.map(([label, value]) => <div className="metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="role-summary" aria-label="Accounts by role">{Object.entries(overview.users_by_role).map(([name, count]) => <span key={name}><strong>{count}</strong> {name}{count === 1 ? "" : "s"}</span>)}</div></>}
+    <section className="admin-section" aria-labelledby="accounts-heading"><div className="admin-section-head"><div><span>Access directory</span><h2 id="accounts-heading">User accounts</h2></div><small>{users ? `${users.total} matching account${users.total === 1 ? "" : "s"}` : "Loading"}</small></div>
+      <div className="admin-filters"><label className="admin-search"><Search size={16}/><span className="sr-only">Search users</span><input type="search" value={userQuery} onChange={event => { setUserQuery(event.target.value); setPage(1); }} placeholder="Search name, email, or organization"/></label><label><span className="sr-only">Filter by role</span><select value={role} onChange={event => { setRole(event.target.value); setPage(1); }}><option value="">All roles</option><option value="buyer">Buyers</option><option value="supplier">Suppliers</option><option value="reviewer">Reviewers</option><option value="admin">Admins</option></select></label><label><span className="sr-only">Filter by account status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label></div>
+      {loadingUsers ? <div className="admin-empty" role="status">Loading accounts…</div> : !users?.items.length ? <div className="admin-empty">No accounts match these filters.</div> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Account</th><th>Organization</th><th>Role</th><th>Status</th><th>Created</th></tr></thead><tbody>{users.items.map(item => <tr key={item.id}><td><strong>{item.display_name}</strong><small>{item.email}</small></td><td>{item.organization}</td><td><span className="role-chip">{item.role}</span></td><td><span className={`account-state ${item.is_active ? "active" : "inactive"}`}>{item.is_active ? "Active" : "Inactive"}</span></td><td>{new Date(item.created_at).toLocaleDateString()}</td></tr>)}</tbody></table></div>}
+      {users && totalPages > 1 && <div className="admin-pagination"><button disabled={page === 1} onClick={() => setPage(current => current - 1)}><ChevronLeft size={15}/>Previous</button><span>Page {page} of {totalPages}</span><button disabled={page >= totalPages} onClick={() => setPage(current => current + 1)}>Next<ChevronRight size={15}/></button></div>}
+    </section>
+    <section className="admin-section" aria-labelledby="catalog-admin-heading"><div className="admin-section-head"><div><span>Procurement coverage</span><h2 id="catalog-admin-heading">Medicine variants</h2></div><small>{medicines.length} shown</small></div><label className="admin-search medicine-admin-search"><Search size={16}/><span className="sr-only">Search medicine variants</span><input type="search" value={medicineQuery} onChange={event => setMedicineQuery(event.target.value)} placeholder="Search medicine, strength, or form"/></label>
+      {loadingMedicines ? <div className="admin-empty" role="status">Loading medicine coverage…</div> : !medicines.length ? <div className="admin-empty">No medicine variants match this search.</div> : <div className="medicine-admin-grid">{medicines.map(item => <article key={`${item.medicine_name}-${item.strength}-${item.dosage_form}-${item.pack_size}`}><div><strong>{medicineLabel(item.medicine_name, item.strength)}</strong><span>{item.dosage_form} · pack {item.pack_size}</span></div><dl><div><dt>Quotations</dt><dd>{item.quotation_count}</dd></div><div><dt>Verified suppliers</dt><dd>{item.authorized_supplier_count}</dd></div><div><dt>Capacity</dt><dd>{item.available_quantity_packs.toLocaleString()} packs</dd></div><div><dt>Markets</dt><dd>{item.destinations.length ? item.destinations.join(", ") : "Review required"}</dd></div></dl></article>)}</div>}
+    </section><p className="fine-print">This view is read-only. Account credentials and session data are never exposed.</p>
+  </main>;
 }
 
 function Landing({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {

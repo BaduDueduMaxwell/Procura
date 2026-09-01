@@ -29,4 +29,12 @@ Feature: Role-aware navigation
     Given a provisioned operations administrator
     When the administrator opens Procura
     Then operations is the default workspace
-    And dashboard, procurement, review, supplier approval, and operations navigation is shown
+    And dashboard, procurement, review, supplier approval, operations, and administration navigation is shown
+
+  Scenario: An administrator searches the control center
+    Given a provisioned operations administrator
+    When the administrator filters users by name, organization, role, or status
+    Then matching database accounts are shown with role and access state
+    When the administrator searches medicine coverage
+    Then matching variants show quotations, verified suppliers, capacity, and markets
+    And the control center does not expose account credentials or sessions

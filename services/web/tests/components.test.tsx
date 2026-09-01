@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DecisionCards, formatReviewReason } from "@/components/DecisionCards";
@@ -94,8 +94,30 @@ describe("guided product journey", () => {
     vi.spyOn(api, "operations").mockResolvedValue({ request_count:0, autonomous_recommendation_count:0, human_review_count:0, error_count:0, evaluation_pass_rate:1, langfuse_status:"Langfuse not configured", sentry_status:"Sentry not configured", recent_traces:[] });
     render(<Home />);
     expect(await screen.findByRole("heading", { name: "Operations" })).toBeVisible();
-    for (const label of ["Dashboard", "Workspace", "Request reviews", "Supplier approvals", "Operations"]) expect(screen.getByRole("button", { name: label })).toBeVisible();
+    for (const label of ["Dashboard", "Workspace", "Request reviews", "Supplier approvals", "Operations", "Administration"]) expect(screen.getByRole("button", { name: label })).toBeVisible();
     expect(screen.getByText("operations admin")).toBeVisible();
+  });
+
+  it("shows searchable database inventory only to administrators", async () => {
+    window.localStorage.setItem("procura-guide:admin-center", "seen");
+    window.history.replaceState({}, "", "/admin");
+    const createdAt = new Date().toISOString();
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"admin-center",email:"operations@procura.example",display_name:"Operations Administrator",organization:"Procura",role:"admin",created_at:createdAt });
+    vi.spyOn(api, "createConversation").mockResolvedValue({ id:"admin-shell",messages:[] });
+    vi.spyOn(api, "adminOverview").mockResolvedValue({ total_users:4,active_users:4,users_by_role:{buyer:1,supplier:1,reviewer:1,admin:1},supplier_count:5,medicine_count:20,medicine_variant_count:24,quotation_count:31,open_review_count:0,pending_supplier_submission_count:0 });
+    const users = vi.spyOn(api, "adminUsers").mockResolvedValue({ items:[{id:"buyer-1",email:"buyer@procura.example",display_name:"Procurement Buyer",organization:"Health Office",role:"buyer",is_active:true,created_at:createdAt}],total:1,page:1,limit:20 });
+    const catalog = vi.spyOn(api, "medicineCatalog").mockResolvedValue([{medicine_name:"omeprazole",strength:"20 mg",dosage_form:"capsule",pack_size:28,quotation_count:2,authorized_supplier_count:1,available_quantity_packs:2800,currencies:["USD"],destinations:["Ghana","Kenya"],cold_chain_available:true,minimum_lead_time_days:13,unit_price_from:3.25,unit_price_to:3.45,request_starter:"We need omeprazole 20 mg capsules, pack size 28."}]);
+
+    render(<Home />);
+    expect(await screen.findByRole("heading", { name:"Control center" })).toBeVisible();
+    expect(await screen.findByText("Procurement Buyer")).toBeVisible();
+    expect(screen.getByText("20", { selector:".metric strong" })).toBeVisible();
+    fireEvent.change(screen.getByRole("searchbox", { name:"Search users" }), { target:{value:"buyer"} });
+    await waitFor(() => expect(users).toHaveBeenLastCalledWith("buyer", "", "", 1, 20));
+    fireEvent.change(screen.getByRole("searchbox", { name:"Search medicine variants" }), { target:{value:"omeprazole"} });
+    await waitFor(() => expect(catalog).toHaveBeenLastCalledWith("omeprazole", 20));
+    expect(screen.getByText("Omeprazole 20 mg")).toBeVisible();
+    expect(screen.queryByText(/password hash/i)).not.toBeInTheDocument();
   });
 
   it("announces when a new request is ready", async () => {

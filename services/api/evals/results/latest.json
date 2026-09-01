@@ -1,8 +1,8 @@
 {
   "provider": "local",
   "threshold": 0.9,
-  "passed": 13,
-  "total": 13,
+  "passed": 15,
+  "total": 15,
   "pass_rate": 1.0,
   "results": [
     {
@@ -142,6 +142,28 @@
       "passed": true,
       "actual_status": "clarification",
       "actual_supplier": null,
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "compact_strength_format",
+      "passed": true,
+      "actual_status": "recommended",
+      "actual_supplier": "northstar",
+      "schema_valid": true,
+      "expected_tool_sequence": true,
+      "request_preserved": true,
+      "correct_escalation": true,
+      "unsupported_claims": 0
+    },
+    {
+      "id": "medicine_typo_confirmation",
+      "passed": true,
+      "actual_status": "recommended",
+      "actual_supplier": "northstar",
       "schema_valid": true,
       "expected_tool_sequence": true,
       "request_preserved": true,

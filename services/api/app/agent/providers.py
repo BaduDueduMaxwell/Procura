@@ -116,6 +116,15 @@ class DeterministicLLMProvider(LLMProvider):
             raise ProviderUnavailableError("Simulated local provider failure")
         values: dict[str, Any] = {"buyer_notes": text[:500]}
         values["medicine_name"] = next((medicine for medicine in CATALOG_MEDICINES if medicine in lower), None)
+        if values["medicine_name"] is None:
+            unknown_medicine = re.search(
+                r"\b(?:of|for)\s+([a-z][a-z-]*(?:\s+[a-z][a-z-]*){0,2})\s+\d+(?:\.\d+)?\s*(?:mcg|mg|g|iu|units)\b",
+                lower,
+            ) or re.search(
+                r"\b(?:need|require|request)\s+(?:\d[\d,]*\s+packs?\s+of\s+)?([a-z][a-z-]*(?:\s+[a-z][a-z-]*){0,2})\s+\d+(?:\.\d+)?\s*(?:mcg|mg|g|iu|units)\b",
+                lower,
+            )
+            values["medicine_name"] = unknown_medicine.group(1) if unknown_medicine else None
         strength = re.search(r"\b(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?)\s*(mg|g|iu/ml|units/ml)\b", lower)
         values["strength"] = f"{strength.group(1)} {strength.group(2)}" if strength else None
         form_match = re.search(r"\b(tablets?|capsules?|vials?|bottles?|sachets?|ampoules?)\b", lower)
