@@ -92,11 +92,11 @@ Password: Procura-Supplier-2026!
 
 Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. They can also respond to buyer requests sent to their linked medicine coverage without viewing the buyer conversation. Changes and request-specific offers remain pending until staff review. Suppliers cannot access unrelated requests or staff operations.
 
-Authenticated browser routes are `/dashboard`, `/intake`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, `/operations`, and `/admin`. Role checks are enforced by the API as well as the interface.
+Authenticated browser routes are `/dashboard`, `/intake`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, `/operations`, and `/admin`. For buyers, `/dashboard` is the overview of saved requirements and supplier decisions, `/intake` is where text or spreadsheet requirements are corrected and submitted, and `/workspace` compares verified supplier quotations for a complete requirement. Role checks are enforced by the API as well as the interface.
 
 | Role | Default route | Access |
 |---|---|---|
-| Buyer | `/dashboard` | Dashboard, buyer intake, and completed decision workspace |
+| Buyer | `/dashboard` | Requirement overview, buyer intake, and supplier comparison workspace |
 | Supplier | `/supplier` | Its linked supplier profile, quotation drafting, quotations, and submission history |
 | Reviewer | `/reviews` | Evidence briefs, procurement decisions, and supplier approvals |
 | Operations admin | `/operations` | Every internal buyer, review, supplier-approval, operations, and read-only administration route; no supplier impersonation |
@@ -253,7 +253,7 @@ cd services/web && npm test -- --run
 cd ../api && python evals/run.py
 ```
 
-The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **31/31 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, catalogue-backed variant selection, quantity preservation, duplicate removal and intentional-duplicate confirmation, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. The gate suites currently pass **102 backend tests** and **32 frontend tests**. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
+The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **31/31 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, catalogue-backed variant selection, quantity preservation, duplicate removal and intentional-duplicate confirmation, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. The gate suites currently pass **103 backend tests** and **34 frontend tests**. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
 
 ## Deployment and observability
 

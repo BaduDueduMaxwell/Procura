@@ -14,6 +14,83 @@ QUOTE_FIELDS = (
     "lead_time_days",
 )
 
+LEAD_TIME_REASON = re.compile(r"^(\d+) day lead time misses requirement$", re.IGNORECASE)
+CURRENCY_REASON = re.compile(
+    r"^Currency ([A-Z]{3}) cannot be compared with ([A-Z]{3}) without a verified rate$",
+    re.IGNORECASE,
+)
+
+
+def _human_join(values: list[str]) -> str:
+    if len(values) == 1:
+        return values[0]
+    if len(values) == 2:
+        return f"{values[0]} and {values[1]}"
+    return f"{', '.join(values[:-1])}, and {values[-1]}"
+
+
+def summarize_review_reasons(case: HumanReviewCase) -> list[str]:
+    """Group repeated quote failures into concise, evidence-backed review reasons."""
+    raw_reasons = [reason.removeprefix("Escalation: ").strip() for reason in case.reasons]
+    summaries: list[str] = []
+    consumed: set[int] = set()
+
+    lead_times: list[int] = []
+    for index, reason in enumerate(raw_reasons):
+        match = LEAD_TIME_REASON.fullmatch(reason)
+        if match:
+            lead_times.append(int(match.group(1)))
+            consumed.add(index)
+    if lead_times:
+        days = _human_join([str(value) for value in sorted(lead_times)])
+        requirement = case.request.max_lead_time_days
+        scope = "all " if len(lead_times) == len(case.quotes) and case.quotes else ""
+        threshold = f"the {requirement}-day requirement" if requirement else "the required lead time"
+        verb = "exceeds" if len(lead_times) == 1 else "exceed"
+        summaries.append(
+            f"Delivery: {scope}{len(lead_times)} quotation{'s' if len(lead_times) != 1 else ''} "
+            f"{verb} {threshold} ({days} day{'s' if len(lead_times) != 1 else ''})."
+        )
+
+    expired = [index for index, reason in enumerate(raw_reasons) if reason.lower() == "authorization expired"]
+    consumed.update(expired)
+    if expired:
+        actor = "one supplier has" if len(expired) == 1 else f"{len(expired)} suppliers have"
+        summaries.append(f"Authorization: {actor} expired authorization.")
+
+    currency_pairs: list[tuple[str, str]] = []
+    for index, reason in enumerate(raw_reasons):
+        match = CURRENCY_REASON.fullmatch(reason)
+        if match:
+            currency_pairs.append((match.group(1).upper(), match.group(2).upper()))
+            consumed.add(index)
+    for offered, requested in dict.fromkeys(currency_pairs):
+        summaries.append(
+            f"Currency: the {offered} quote cannot be compared with the requested {requested} "
+            "without a verified rate."
+        )
+
+    no_eligible = [
+        index
+        for index, reason in enumerate(raw_reasons)
+        if reason.lower()
+        in {
+            "no eligible quotation",
+            "no eligible quotation is available after deterministic supplier checks",
+        }
+    ]
+    consumed.update(no_eligible)
+
+    for index, reason in enumerate(raw_reasons):
+        if index in consumed:
+            continue
+        readable = reason.replace("_", " ").replace("  ", " ")
+        summaries.append(f"{readable[:1].upper()}{readable[1:]}")
+
+    if no_eligible:
+        summaries.append("Outcome: no eligible quotation remains after deterministic supplier checks.")
+    return summaries
+
 
 def draft_supplier_quote(content: str, provider: str) -> SupplierQuoteDraft:
     text = " ".join(content.split())
@@ -52,9 +129,11 @@ def draft_supplier_quote(content: str, provider: str) -> SupplierQuoteDraft:
 
 def create_review_brief(case: HumanReviewCase, provider: str) -> ReviewBrief:
     medicine = case.request.medicine
-    evidence = [f"Escalation: {reason}" for reason in case.reasons]
+    reason_summary = summarize_review_reasons(case)
+    evidence = [*reason_summary]
     evidence.append(f"Request: {medicine.quantity or 'unknown'} packs of {medicine.medicine_name or 'unspecified medicine'} {medicine.strength or ''}".strip())
-    evidence.append(f"Supplier quotations checked: {len(case.quotes)}; eligible: {sum(quote.eligible for quote in case.quotes)}")
+    eligible_count = sum(quote.eligible for quote in case.quotes)
+    evidence.append(f"Supplier quotations checked: {len(case.quotes)}; eligible: {eligible_count}")
     if case.recommendation_supplier_id:
         evidence.append(f"Current recommendation: {case.recommendation_supplier_id}")
 
@@ -73,7 +152,10 @@ def create_review_brief(case: HumanReviewCase, provider: str) -> ReviewBrief:
     return ReviewBrief(
         review_id=case.id,
         trace_id=case.trace_id,
-        summary=f"Review {medicine.medicine_name or 'the request'} against {len(case.quotes)} supplier quotation(s). The policy raised {len(case.reasons)} exception(s).",
+        summary=(
+            f"{eligible_count} of {len(case.quotes)} supplier quotations passed the required checks "
+            f"for {medicine.medicine_name or 'this request'}."
+        ),
         evidence_points=evidence,
         suggested_action=suggested_action,
         suggestion_reason=reason,

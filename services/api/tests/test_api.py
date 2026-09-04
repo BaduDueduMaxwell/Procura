@@ -657,10 +657,31 @@ def test_review_brief_is_grounded_and_does_not_decide_case(client):
     assert body["review_id"] == case["id"]
     assert body["human_decision_required"] is True
     assert body["suggested_action"] == "request_clarification"
-    assert any("Escalation:" in point for point in body["evidence_points"])
+    assert any(point.startswith("Pack size mismatch") for point in body["evidence_points"])
     assert client.get(f"/api/reviews/{case['id']}").json()["status"] == "open"
     login_seeded_buyer(client)
     assert client.get(f"/api/reviews/{case['id']}/brief").status_code == 403
+
+
+def test_review_brief_groups_repeated_supplier_failures(client):
+    cid = new_conversation(client)
+    client.post(
+        f"/api/conversations/{cid}/messages",
+        json={
+            "content": "500 packs of ceftriaxone 1 g vials, pack size 10, to Ghana within 14 days in USD",
+            "idempotency_key": "brief-grouped-001",
+        },
+    )
+    login_reviewer(client)
+    case = next(item for item in client.get("/api/reviews").json() if item["request"]["medicine"]["medicine_name"] == "ceftriaxone")
+    brief = client.get(f"/api/reviews/{case['id']}/brief").json()
+
+    assert brief["summary"] == "0 of 3 supplier quotations passed the required checks for ceftriaxone."
+    assert "Delivery: all 3 quotations exceed the 14-day requirement (17, 18, and 24 days)." in brief["evidence_points"]
+    assert "Authorization: one supplier has expired authorization." in brief["evidence_points"]
+    assert "Currency: the EUR quote cannot be compared with the requested USD without a verified rate." in brief["evidence_points"]
+    assert "Outcome: no eligible quotation remains after deterministic supplier checks." in brief["evidence_points"]
+    assert not any(point.startswith("Escalation:") for point in brief["evidence_points"])
 
 
 def test_supplier_onboarding_submission_and_staff_approval(client):

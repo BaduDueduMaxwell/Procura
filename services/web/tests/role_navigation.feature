@@ -17,7 +17,17 @@ Feature: Role-aware navigation
   Scenario: Collapsed navigation remains understandable
     Given the navigation is collapsed at a tablet width
     When a buyer moves through the navigation with a keyboard or screen reader
-    Then Dashboard and Workspace retain their accessible names
+    Then Dashboard, Requirements, and Supplier comparison retain their accessible names
+
+  Scenario: Buyer routes have separate responsibilities
+    Given a buyer has procurement requirements and supplier comparison decisions
+    When the buyer opens Dashboard
+    Then persisted intake totals and recent requirements are shown as the primary workflow
+    And supplier comparison decisions are shown separately
+    When the buyer opens Requirements
+    Then Procura accepts text, CSV, and XLSX intake and returns correctable row feedback
+    When the buyer opens Supplier comparison
+    Then Procura evaluates verified quotations for a complete requirement
 
   Scenario: A reviewer opens an administrator URL
     Given a signed-in reviewer

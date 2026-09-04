@@ -15,9 +15,53 @@ export function formatReviewReason(reason: string): string {
   const readable = legacy[raw] ?? raw.replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
   return `${prefix}${readable}`;
 }
+
+function humanJoin(values: string[]): string {
+  if (values.length === 1) return values[0];
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+export function summarizeReviewReasons(reasons: string[], requiredLeadTime?: number, quoteCount?: number): string[] {
+  const raw = reasons.map(reason => reason.replace(/^Escalation: /, "").trim());
+  const consumed = new Set<number>();
+  const summaries: string[] = [];
+  const leadTimes: number[] = [];
+
+  raw.forEach((reason, index) => {
+    const match = reason.match(/^(\d+) day lead time misses requirement$/i);
+    if (match) { leadTimes.push(Number(match[1])); consumed.add(index); }
+  });
+  if (leadTimes.length) {
+    const all = quoteCount && leadTimes.length === quoteCount ? "all " : "";
+    const requirement = requiredLeadTime ? `the ${requiredLeadTime}-day requirement` : "the required lead time";
+    const subject = `${leadTimes.length} quotation${leadTimes.length === 1 ? "" : "s"}`;
+    const verb = leadTimes.length === 1 ? "exceeds" : "exceed";
+    summaries.push(`Delivery: ${all}${subject} ${verb} ${requirement} (${humanJoin(leadTimes.sort((a, b) => a - b).map(String))} day${leadTimes.length === 1 ? "" : "s"}).`);
+  }
+
+  const expired = raw.flatMap((reason, index) => reason.toLowerCase() === "authorization expired" ? [index] : []);
+  expired.forEach(index => consumed.add(index));
+  if (expired.length) summaries.push(`Authorization: ${expired.length === 1 ? "one supplier has" : `${expired.length} suppliers have`} expired authorization.`);
+
+  raw.forEach((reason, index) => {
+    const match = reason.match(/^Currency ([A-Z]{3}) cannot be compared with ([A-Z]{3}) without a verified rate$/i);
+    if (!match) return;
+    consumed.add(index);
+    summaries.push(`Currency: the ${match[1].toUpperCase()} quote cannot be compared with the requested ${match[2].toUpperCase()} without a verified rate.`);
+  });
+
+  const noEligibleReasons = new Set(["no eligible quotation", "no eligible quotation is available after deterministic supplier checks"]);
+  const noEligible = raw.flatMap((reason, index) => noEligibleReasons.has(reason.toLowerCase()) ? [index] : []);
+  noEligible.forEach(index => consumed.add(index));
+  raw.forEach((reason, index) => { if (!consumed.has(index)) summaries.push(formatReviewReason(reason)); });
+  if (noEligible.length) summaries.push("Outcome: no eligible quotation remains after deterministic supplier checks.");
+  return [...new Set(summaries)];
+}
 export function DecisionCards({ result }: { result: AgentResponse }) {
   const { request, quotes, decision } = result;
   const recommendedQuote = quotes.find(quote => quote.supplier_id === decision.recommendation_supplier_id);
+  const reviewReasons = summarizeReviewReasons(decision.escalation_reasons, request.max_lead_time_days, quotes.length);
   return <div className="result-stack">
     <section className="data-card"><div className="card-title"><PackageCheck size={18} /><h3>Request brief</h3></div>
       <dl className="request-grid">
@@ -27,7 +71,7 @@ export function DecisionCards({ result }: { result: AgentResponse }) {
         <div><dt>Delivery</dt><dd>{request.max_lead_time_days ? `Within ${request.max_lead_time_days} days` : "Pending"}</dd></div><div><dt>Currency</dt><dd>{request.currency || "Pending"}</dd></div>
       </dl>
     </section>
-    {decision.human_review_required && <div className="review-banner" role="status"><CircleAlert size={20} /><div><strong>Human review required</strong>{decision.escalation_reasons.length ? <ul>{decision.escalation_reasons.map(reason => <li key={reason}>{formatReviewReason(reason)}</li>)}</ul> : <p>An unsafe condition requires staff review.</p>}</div></div>}
+    {decision.human_review_required && <div className="review-banner" role="status"><CircleAlert size={20} /><div><strong>Human review required</strong><p>Supplier evidence needs a reviewer before this requirement can proceed.</p>{reviewReasons.length ? <ul>{reviewReasons.map(reason => <li key={reason}>{reason}</li>)}</ul> : <p>An unsafe condition requires staff review.</p>}</div></div>}
     {quotes.length > 0 && <section className="data-card quote-card"><div className="card-title"><h3>Quotation comparison</h3><span>{quotes.length} reviewed</span></div>
       <div className="quote-table" role="table" aria-label="Supplier quotation comparison">
         {quotes.map((quote, index) => <div className="quote-row" role="row" key={quote.quote_id}>

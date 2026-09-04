@@ -35,3 +35,11 @@ Feature: AI-first role assistance preserves human control
     When Procura prepares the review brief
     Then the brief cites the stored escalation and quotation evidence
     And it suggests an action without changing the case status
+
+  Scenario: Repeated supplier failures are summarized for review
+    Given every quotation misses the requested delivery window
+    And some quotations also have expired authorization or an unverified currency conversion
+    When Procura prepares the reviewer evidence
+    Then the delivery failures are grouped into one sentence with every observed lead time
+    And authorization, currency, and final eligibility are shown as separate evidence categories
+    And supplier-level details remain available on the quotation rows

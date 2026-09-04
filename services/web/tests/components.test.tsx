@@ -2,7 +2,7 @@ import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatusBadge } from "@/components/StatusBadge";
-import { DecisionCards, formatReviewReason } from "@/components/DecisionCards";
+import { DecisionCards, formatReviewReason, summarizeReviewReasons } from "@/components/DecisionCards";
 import type { AgentResponse } from "@/lib/types";
 import Home from "@/app/page";
 import { api, formatApiError } from "@/lib/api";
@@ -10,6 +10,7 @@ import { BuyerIntake } from "@/components/BuyerIntake";
 import type { ProcurementIntake } from "@/lib/types";
 
 const stored = new Map<string, string>();
+const emptyIntakeSummary = { total:0, drafts:0, needs_correction:0, ready:0, submitted:0, median_time_to_valid_submission_ms:undefined, recent:[] };
 Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), removeItem: (key: string) => stored.delete(key), clear: () => stored.clear() } });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); window.localStorage.clear(); window.history.replaceState({}, "", "/"); });
 
@@ -20,6 +21,21 @@ describe("critical decision rendering", () => {
   });
   it("announces eligibility with text, not color alone", () => { render(<StatusBadge status="eligible" />); expect(screen.getByText("Eligible")).toBeVisible(); });
   it("does not label clarification as eligible", () => { render(<StatusBadge status="clarification" />); expect(screen.getByText("Needs information")).toBeVisible(); expect(screen.queryByText("Eligible")).not.toBeInTheDocument(); });
+  it("groups repeated supplier failures into a concise review explanation", () => {
+    expect(summarizeReviewReasons([
+      "17 day lead time misses requirement",
+      "18 day lead time misses requirement",
+      "24 day lead time misses requirement",
+      "Authorization expired",
+      "Currency EUR cannot be compared with USD without a verified rate",
+      "No eligible quotation is available after deterministic supplier checks",
+    ], 14, 3)).toEqual([
+      "Delivery: all 3 quotations exceed the 14-day requirement (17, 18, and 24 days).",
+      "Authorization: one supplier has expired authorization.",
+      "Currency: the EUR quote cannot be compared with the requested USD without a verified rate.",
+      "Outcome: no eligible quotation remains after deterministic supplier checks.",
+    ]);
+  });
   it("shows review boundary and no-transaction statement", () => {
     const result: AgentResponse = { conversation_id:"c", message:{id:"m",role:"assistant",content:"Review",created_at:new Date().toISOString()}, progress_events:[], request:{ id:"r",synthetic:true, medicine:{medicine_name:"amoxicillin",strength:"500 mg",dosage_form:"capsule",quantity:2000,pack_size:50,unit:"packs",cold_chain_required:false},destination:"Ghana",max_lead_time_days:21,currency:"USD"}, quotes:[], decision:{status:"review_required",summary:"Staff review needed",human_review_required:true,escalation_reasons:["Pack mismatch"],policy_version:"procura-policy-v1",trace_id:"t",no_transaction_completed:true} };
     render(<DecisionCards result={result} />); expect(screen.getByRole("status")).toHaveTextContent("Human review required");
@@ -213,7 +229,7 @@ describe("guided product journey", () => {
     vi.spyOn(api, "operations").mockResolvedValue({ request_count:0, autonomous_recommendation_count:0, human_review_count:0, error_count:0, evaluation_pass_rate:1, langfuse_status:"Langfuse not configured", sentry_status:"Sentry not configured", recent_traces:[] });
     render(<Home />);
     expect(await screen.findByRole("heading", { name: "Operations" })).toBeVisible();
-    for (const label of ["Dashboard", "Workspace", "Request reviews", "Supplier approvals", "Operations", "Administration"]) expect(screen.getByRole("button", { name: label })).toBeVisible();
+    for (const label of ["Dashboard", "Requirements", "Supplier comparison", "Request reviews", "Supplier approvals", "Operations", "Administration"]) expect(screen.getByRole("button", { name: label })).toBeVisible();
     expect(screen.getByText("operations admin")).toBeVisible();
   });
 
@@ -244,9 +260,11 @@ describe("guided product journey", () => {
     vi.spyOn(api, "me").mockResolvedValueOnce({ id: "buyer-1", email: "buyer@procura.example", display_name: "Buyer", organization: "Health Office", role: "buyer", created_at: new Date().toISOString() });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id: "conversation-1", messages: [] });
     vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count: 0, execution_count: 0, recommendation_count: 0, review_count: 0, recent_decisions: [] });
+    vi.spyOn(api, "intakeSummary").mockResolvedValue(emptyIntakeSummary);
+    vi.spyOn(api, "procurementRequests").mockResolvedValue([]);
     render(<Home />);
-    fireEvent.click((await screen.findAllByRole("button", { name: "Start a request" }))[0]);
-    expect(await screen.findByText("New request ready")).toBeVisible();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Start a requirement" }))[0]);
+    expect(await screen.findByText("New requirement ready")).toBeVisible();
   });
 
   it("clears a buyer request only after the API accepts it", async () => {
@@ -277,13 +295,36 @@ describe("guided product journey", () => {
     vi.spyOn(api, "me").mockResolvedValueOnce({ id: "buyer-route", email: "buyer-route@procura.example", display_name: "Buyer", organization: "Health Office", role: "buyer", created_at: new Date().toISOString() });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id: "conversation-route", messages: [] });
     vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count: 0, execution_count: 0, recommendation_count: 0, review_count: 0, recent_decisions: [] });
+    vi.spyOn(api, "intakeSummary").mockResolvedValue(emptyIntakeSummary);
+    vi.spyOn(api, "procurementRequests").mockResolvedValue([]);
     render(<Home />);
-    expect(await screen.findByRole("heading", { name: "Describe what you need" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Compare verified quotations" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Dashboard" })).toHaveAttribute("aria-label", "Dashboard");
-    expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("aria-label", "Workspace");
+    expect(screen.getByRole("button", { name: "Requirements" })).toHaveAttribute("aria-label", "Requirements");
+    expect(screen.getByRole("button", { name: "Supplier comparison" })).toHaveAttribute("aria-label", "Supplier comparison");
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
     expect(window.location.pathname).toBe("/dashboard");
     expect(await screen.findByRole("heading", { name: "Procurement dashboard" })).toBeVisible();
+  });
+
+  it("keeps intake progress separate from supplier comparison decisions", async () => {
+    window.localStorage.setItem("procura-guide:buyer-dashboard", "seen");
+    const createdAt = new Date().toISOString();
+    vi.spyOn(api, "me").mockResolvedValueOnce({ id:"buyer-dashboard",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt });
+    vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count:3,execution_count:2,recommendation_count:1,review_count:1,recent_decisions:[] });
+    vi.spyOn(api, "intakeSummary").mockResolvedValue({ total:7,drafts:1,needs_correction:2,ready:3,submitted:1,median_time_to_valid_submission_ms:9000,recent:[] });
+    vi.spyOn(api, "procurementRequests").mockResolvedValue([]);
+
+    render(<Home />);
+
+    expect(await screen.findByRole("heading", {name:"Procurement dashboard"})).toBeVisible();
+    expect(screen.getByText("Requirements", {selector:".metric span"}).nextElementSibling).toHaveTextContent("7");
+    expect(screen.getByText("Needs attention", {selector:".metric span"}).nextElementSibling).toHaveTextContent("2");
+    expect(screen.getByText("Ready to submit", {selector:".metric span"}).nextElementSibling).toHaveTextContent("3");
+    expect(screen.getByText("Submitted", {selector:".metric span"}).nextElementSibling).toHaveTextContent("1");
+    expect(screen.getByText("2 evaluated")).toBeVisible();
+    expect(screen.getByLabelText("Supplier comparison totals")).toHaveTextContent("1 recommendation");
+    expect(screen.getByLabelText("Supplier comparison totals")).toHaveTextContent("1 review handoff");
   });
 
   it("opens a buyer decision from the dashboard with its conversation and evidence", async () => {
@@ -294,6 +335,8 @@ describe("guided product journey", () => {
     vi.spyOn(api, "me").mockResolvedValueOnce({ id:"buyer-decision",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id:"empty-shell",messages:[] });
     vi.spyOn(api, "customerDashboard").mockResolvedValue({ conversation_count:1,execution_count:1,recommendation_count:1,review_count:0,recent_decisions:[trace] });
+    vi.spyOn(api, "intakeSummary").mockResolvedValue(emptyIntakeSummary);
+    vi.spyOn(api, "procurementRequests").mockResolvedValue([]);
     const execution = vi.spyOn(api, "execution").mockResolvedValue(result);
     vi.spyOn(api, "conversation").mockResolvedValue({ id:"conversation-decision-1",messages:[{id:"user-1",role:"user",content:"We need omeprazole.",created_at:createdAt},result.message] });
 
@@ -493,6 +536,7 @@ describe("connected procurement lifecycle", () => {
     window.localStorage.setItem("procura-guide:buyer-notice", "seen");
     vi.spyOn(api, "me").mockResolvedValueOnce({id:"buyer-notice",email:"buyer@procura.example",display_name:"Buyer",organization:"Health Office",role:"buyer",created_at:createdAt});
     vi.spyOn(api, "customerDashboard").mockResolvedValue({conversation_count:0,execution_count:0,recommendation_count:0,review_count:0,recent_decisions:[]}); vi.spyOn(api, "procurementRequests").mockResolvedValue([]);
+    vi.spyOn(api, "intakeSummary").mockResolvedValue(emptyIntakeSummary);
     const notification = {id:"notice-1",request_id:lifecycle.id,title:"Supplier response received",message:"Northstar submitted an offer.",is_read:false,created_at:createdAt};
     vi.spyOn(api, "notifications").mockResolvedValueOnce([notification]).mockResolvedValueOnce([{...notification,is_read:true}]); const mark = vi.spyOn(api, "readNotification").mockResolvedValue({...notification,is_read:true});
     render(<Home/>); fireEvent.click(await screen.findByRole("button", {name:/notifications/i})); fireEvent.click(await screen.findByRole("button", {name:/supplier response received/i}));
