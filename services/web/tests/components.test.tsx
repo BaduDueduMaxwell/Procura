@@ -129,6 +129,32 @@ describe("buyer intake correction workflow", () => {
     );
     expect(screen.getByRole("button", {name:/accept mapping/i})).toBeInTheDocument();
   });
+
+  it("lets a buyer remove, restore, or keep duplicate rows inside the workspace", async () => {
+    window.history.replaceState({}, "", "/intake/intake-duplicates");
+    const finding = {code:"possible_duplicate",severity:"blocker" as const,message:"This product appears more than once in the list.",field:"medicine_name",row_id:"line-duplicate-1",evidence_source:"procura-policy-v1",correctable_by_buyer:true,suggested_action:"Confirm or remove the duplicate"};
+    const first = {...suggestion.lines[0],id:"line-duplicate-1",medicine_name:"omeprazole",status:"needs_correction" as const,suggestion:undefined,findings:[finding]};
+    const second = {...first,id:"line-duplicate-2",source_row:2,findings:[{...finding,row_id:"line-duplicate-2"}]};
+    const duplicate: ProcurementIntake = {...suggestion,id:"intake-duplicates",source_type:"csv",filename:"duplicates.csv",status:"needs_correction",original_row_count:2,lines:[first,second]};
+    const removed: ProcurementIntake = {...duplicate,version:2,status:"ready",lines:[{...first,status:"ready",findings:[]}],removed_lines:[{line:second,reason:"duplicate",actor_id:"buyer-1",removed_at:createdAt}]};
+    const restored: ProcurementIntake = {...duplicate,version:3,removed_lines:[]};
+    const confirmed: ProcurementIntake = {...restored,version:4,status:"ready",lines:[{...first,status:"ready",findings:[],duplicate_resolution:"keep_both"},{...second,status:"ready",findings:[],duplicate_resolution:"keep_both"}]};
+    vi.spyOn(api, "intakes").mockResolvedValue([duplicate]);
+    const resolve = vi.spyOn(api, "resolveIntakeDuplicate").mockResolvedValueOnce(removed).mockResolvedValueOnce(restored).mockResolvedValueOnce(confirmed);
+
+    render(<BuyerIntake/>);
+    expect((await screen.findAllByText("Is this row intentional?")).length).toBe(2);
+    fireEvent.click(screen.getAllByRole("button", {name:"Remove this row"})[1]);
+    expect(await screen.findByText("Removed duplicate rows")).toBeVisible();
+    expect(screen.getByText(/omeprazole 20 mg · source row 2/i)).toBeVisible();
+    expect(screen.getByText("Original rows").nextElementSibling).toHaveTextContent("2");
+    fireEvent.click(screen.getByRole("button", {name:"Restore"}));
+    await waitFor(() => expect(resolve).toHaveBeenNthCalledWith(1, "intake-duplicates", "line-duplicate-2", 1, "remove"));
+    expect(resolve).toHaveBeenNthCalledWith(2, "intake-duplicates", "line-duplicate-2", 2, "restore");
+    fireEvent.click((await screen.findAllByRole("button", {name:"Keep both rows"}))[0]);
+    await waitFor(() => expect(resolve).toHaveBeenNthCalledWith(3, "intake-duplicates", "line-duplicate-1", 3, "keep_both"));
+    expect((await screen.findAllByText("Ready"))[0]).toBeVisible();
+  });
 });
 
 describe("guided product journey", () => {
@@ -398,13 +424,16 @@ describe("guided product journey", () => {
     const createdAt = new Date().toISOString();
     vi.spyOn(api, "me").mockResolvedValueOnce({ id:"operations-trace",email:"operations@procura.example",display_name:"Operations",organization:"Procura",role:"admin",created_at:createdAt });
     vi.spyOn(api, "createConversation").mockResolvedValue({ id:"operations-shell",messages:[] });
-    vi.spyOn(api, "operations").mockResolvedValue({ request_count:1,autonomous_recommendation_count:1,human_review_count:0,error_count:0,p50_latency_ms:4200,p95_latency_ms:4200,token_usage:730,evaluation_pass_rate:1,langfuse_status:"Langfuse not configured",sentry_status:"Sentry not configured",recent_traces:[{trace_id:"trace-operations-1",conversation_id:"conversation-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt,medicine_name:"fluconazole",strength:"150 mg",dosage_form:"capsule"}] });
+    vi.spyOn(api, "operations").mockResolvedValue({ request_count:1,autonomous_recommendation_count:1,human_review_count:0,error_count:0,p50_latency_ms:4200,p95_latency_ms:4200,token_usage:730,evaluation_pass_rate:1,langfuse_status:"Langfuse not configured",sentry_status:"Sentry not configured",intake_count:5,intake_submitted_count:2,intake_needs_correction_count:1,intake_critical_review_count:1,intake_failed_safe_count:0,intake_total_rows:24,intake_buyer_corrected_row_count:7,intake_first_pass_complete_rate:.4,median_time_to_first_feedback_ms:820,median_time_to_valid_submission_ms:6400,recent_traces:[{trace_id:"trace-operations-1",conversation_id:"conversation-1",decision:"recommended",latency_ms:4200,provider:"gemini",model:"gemini-3.6-flash",review_required:false,policy_version:"procura-policy-v1",prompt_version:"procura-agent-v1",token_input:650,token_output:80,exported_to_langfuse:false,tool_sequence:["normalize_procurement_request"],created_at:createdAt,medicine_name:"fluconazole",strength:"150 mg",dosage_form:"capsule"}] });
 
     render(<Home />);
     fireEvent.click(await screen.findByRole("button", { name:"Open Fluconazole 150 mg trace" }));
 
     expect(screen.getAllByText("Fluconazole 150 mg").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("gemini · gemini-3.6-flash")).toBeVisible();
+    expect(screen.getByText("First-pass ready").nextElementSibling).toHaveTextContent("40%");
+    expect(screen.getByText("Buyer-corrected rows").nextElementSibling).toHaveTextContent("7");
+    expect(screen.queryByText("Requests", {selector:".metric span"})).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/operations/traces/trace-operations-1");
   });
 });

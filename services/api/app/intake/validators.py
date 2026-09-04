@@ -142,16 +142,28 @@ def validate_units(line: IntakeLine) -> list[IntakeFinding]:
 VALIDATORS: tuple[Callable[[IntakeLine], list[IntakeFinding]], ...] = (validate_required, validate_catalogue, validate_units)
 
 
-def validate_lines(lines: list[IntakeLine]) -> list[IntakeLine]:
-    fingerprints = Counter(
-        (canonicalize_medicine_name(line.medicine_name), canonicalize_strength(line.strength), canonicalize_dosage_form(line.dosage_form), line.pack_size, line.destination)
-        for line in lines
+def duplicate_fingerprint(line: IntakeLine) -> tuple[object, ...]:
+    """Identify exact repeated requirements without using price or supplier data."""
+    return (
+        canonicalize_medicine_name(line.medicine_name),
+        canonicalize_strength(line.strength),
+        canonicalize_dosage_form(line.dosage_form),
+        line.quantity,
+        line.unit,
+        line.pack_size,
+        line.destination,
+        line.max_lead_time_days,
+        line.currency,
     )
+
+
+def validate_lines(lines: list[IntakeLine]) -> list[IntakeLine]:
+    fingerprints = Counter(duplicate_fingerprint(line) for line in lines)
     result: list[IntakeLine] = []
     for line in lines:
         findings = [finding for validator in VALIDATORS for finding in validator(line)]
-        fingerprint = (canonicalize_medicine_name(line.medicine_name), canonicalize_strength(line.strength), canonicalize_dosage_form(line.dosage_form), line.pack_size, line.destination)
-        if line.medicine_name and fingerprints[fingerprint] > 1:
+        fingerprint = duplicate_fingerprint(line)
+        if line.medicine_name and fingerprints[fingerprint] > 1 and line.duplicate_resolution != "keep_both":
             findings.append(_finding(line, "possible_duplicate", "blocker", "This product appears more than once in the list.", "medicine_name", True, "Confirm or remove the duplicate"))
         if line.suggestion and line.suggestion.status == "pending":
             status = "suggestion_available"

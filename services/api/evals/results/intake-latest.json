@@ -1,8 +1,8 @@
 {
   "suite": "buyer-intake-v1",
   "provider": "local",
-  "passed": 26,
-  "total": 26,
+  "passed": 28,
+  "total": 28,
   "pass_rate": 1.0,
   "threshold": 0.9,
   "results": [
@@ -83,6 +83,16 @@
     },
     {
       "scenario": "duplicate products",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "buyer removes an accidental duplicate",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "buyer confirms intentional duplicate requirements",
       "passed": true,
       "detail": "Observed expected buyer or critical-review route"
     },

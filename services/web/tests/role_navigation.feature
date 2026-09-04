@@ -38,3 +38,9 @@ Feature: Role-aware navigation
     When the administrator searches medicine coverage
     Then matching variants show quotations, verified suppliers, capacity, and markets
     And the control center does not expose account credentials or sessions
+
+  Scenario: Operations focuses on the buyer-intake outcome
+    Given procurement intakes have been processed
+    When the administrator opens Operations
+    Then intake volume, submission, correction, critical review, first-pass completion, and time-to-valid are primary
+    And row processing, buyer corrections, first-feedback time, failures, and monitoring remain visible as supporting evidence

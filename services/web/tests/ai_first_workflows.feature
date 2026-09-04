@@ -1,5 +1,12 @@
 Feature: Role workflows begin with guided assistance
 
+  Scenario: A buyer resolves a duplicate without leaving Procura
+    Given an uploaded procurement list contains the same requirement twice
+    When the buyer reviews the duplicate finding
+    Then the buyer can remove that row or confirm both requirements are intentional
+    And a removed row remains restorable before submission
+    And the original row count and buyer action remain auditable
+
   Scenario: Human-review copy names the failed safeguard
     Given a procurement workflow cannot complete a required check
     Then the buyer sees the specific failed safeguard in plain language

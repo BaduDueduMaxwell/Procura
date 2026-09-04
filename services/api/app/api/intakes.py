@@ -8,6 +8,7 @@ from app.domain.models import (
     AuthUser,
     IntakeActionRequest,
     IntakeDashboardSummary,
+    IntakeDuplicateDecisionRequest,
     IntakeLinePatch,
     IntakeSuggestionDecisionRequest,
     ProcurementIntake,
@@ -136,6 +137,22 @@ def decide_intake_suggestion(
 ):
     try:
         return service(request).decide_suggestion(
+            user, intake_id, line_id, body.action, body.version, body.idempotency_key
+        )
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@router.post("/{intake_id}/lines/{line_id}/duplicate", response_model=ProcurementIntake)
+def resolve_intake_duplicate(
+    intake_id: str,
+    line_id: str,
+    body: IntakeDuplicateDecisionRequest,
+    request: Request,
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    try:
+        return service(request).resolve_duplicate(
             user, intake_id, line_id, body.action, body.version, body.idempotency_key
         )
     except Exception as exc:

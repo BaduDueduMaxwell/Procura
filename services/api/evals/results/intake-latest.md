@@ -1,6 +1,6 @@
 # Buyer intake evaluation
 
-Result: **26/26 (100%)**. Threshold: 90%.
+Result: **28/28 (100%)**. Threshold: 90%.
 
 | Scenario | Result |
 |---|---|
@@ -20,6 +20,8 @@ Result: **26/26 (100%)**. Threshold: 90%.
 | mixed spreadsheet | PASS |
 | mappable headers | PASS |
 | duplicate products | PASS |
+| buyer removes an accidental duplicate | PASS |
+| buyer confirms intentional duplicate requirements | PASS |
 | irrelevant input | PASS |
 | unrelated purchasing request | PASS |
 | unrelated business text | PASS |

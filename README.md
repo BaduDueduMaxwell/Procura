@@ -42,7 +42,7 @@ The graph fixes the order: ingest, parse, normalize, catalogue match, row valida
 
 Use `/intake` to enter one natural-language requirement or upload a CSV/XLSX list. Files are limited to 5 MB and 2,000 rows, formulas are rejected rather than evaluated, and XLSX archives are bounded before extraction. Header aliases map familiar procurement headings without changing cell values. Every row keeps its original values and receives typed findings, a status, an evidence source, and a suggested action.
 
-Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. A catalogue suggestion must be accepted or rejected by the signed-in buyer and records the actor and timestamp. The hosted Gemini interpreter classifies procurement intent semantically as part of its typed output rather than gating requests on a fixed phrase list. The no-key provider uses catalogue-independent clinical structure so unseen medicine names can still reach buyer correction. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
+Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. Duplicate rows present a direct choice to remove the row or confirm that both entries are intentional; removed rows remain visible and can be restored before submission. Catalogue suggestions must be accepted or rejected by the signed-in buyer, and every correction records the actor and timestamp. The hosted Gemini interpreter classifies procurement intent semantically as part of its typed output rather than gating requests on a fixed phrase list. The no-key provider uses catalogue-independent clinical structure so unseen medicine names can still reach buyer correction. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
 
 Brand normalization is deterministic. `knowledge/GHANA_MEDICINE_BRANDS.json` contains curated public reference records from the Ghana FDA Product Register, the retrieval date, registration expiry, manufacturer, active ingredient, and direct record URL. The application never queries the public register during a buyer request, so registry downtime cannot block intake. Expired records are ignored, unknown brands remain unresolved, and every recognized mapping requires buyer confirmation. Supplier, price, quotation, and inventory records remain fictional application data.
 
@@ -139,7 +139,7 @@ make down    # stop Docker services
 4. Submit `300 packs of insulin 100 units/ml vials, pack size 10, cold chain, delivered to Ghana within 21 days in USD.` to inspect cold-chain exclusions.
 5. Sign in as the reviewer, open Staff review, and record an approval, rejection, or clarification request.
 6. Sign in as the supplier and describe: `Offer 4,000 packs of paracetamol 500 mg tablets, pack size 20, at USD 0.44 per pack, within 13 days.` Review the prepared fields, then explicitly submit the quotation for verification.
-7. Open Operations to see real local request counts, decision totals, measured latency, eval pass rate, and integration status.
+7. Open Operations to see buyer-intake volume, submitted lists, correction and critical-review counts, first-pass readiness, time to first feedback, time to valid submission, and monitoring status from real local executions.
 8. Use the development-only timeout control to verify safe failure and review creation.
 
 ## API
@@ -156,6 +156,7 @@ make down    # stop Docker services
 | `GET` | `/api/intakes` | Owning buyer or admin |
 | `PATCH` | `/api/intakes/{id}/lines/{line_id}` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/lines/{line_id}/suggestion` | Owning buyer or admin |
+| `POST` | `/api/intakes/{id}/lines/{line_id}/duplicate` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/revalidate` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/submit` | Owning buyer or admin |
 | `GET` | `/api/catalog/medicines?q=paracetamol&limit=6` | Buyer or admin |
@@ -249,7 +250,7 @@ cd services/web && npm test -- --run
 cd ../api && python evals/run.py
 ```
 
-The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **22/22 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, duplicates, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
+The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **28/28 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, duplicate removal and intentional-duplicate confirmation, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. The gate suites currently pass **99 backend tests** and **31 frontend tests**. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
 
 ## Deployment and observability
 

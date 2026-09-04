@@ -51,6 +51,14 @@ class SqlAlchemyIntakeRepository:
                 raise LookupError("Procurement intake not found")
             return _model(row)
 
+    def action_result(self, intake_id: str, buyer_id: str, allow_admin: bool, idempotency_key: str) -> ProcurementIntake | None:
+        """Return the saved result when a client safely retries the same action."""
+        with SessionLocal() as db:
+            row = db.get(ProcurementIntakeRow, intake_id)
+            if not row or (row.buyer_id != buyer_id and not allow_admin):
+                raise LookupError("Procurement intake not found")
+            return _model(row) if idempotency_key in json.loads(row.action_keys or "[]") else None
+
     def save(self, intake: ProcurementIntake, expected_version: int, idempotency_key: str) -> ProcurementIntake:
         try:
             with SessionLocal() as db:

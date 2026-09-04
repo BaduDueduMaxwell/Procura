@@ -79,6 +79,23 @@ def critical_submission():
     )
 
 
+def duplicate_decision(action: str):
+    created = csv_upload(
+        header
+        + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n"
+        + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n"
+    ).json()
+    response = client.post(
+        f"/api/intakes/{created['id']}/lines/{created['lines'][1]['id']}/duplicate",
+        json={"action": action, "version": created["version"], "idempotency_key": str(uuid4())},
+    )
+    body = response.json()
+    return body["status"] == "ready" and (
+        len(body["removed_lines"]) == 1 if action == "remove"
+        else all(line["duplicate_resolution"] == "keep_both" for line in body["lines"])
+    )
+
+
 scenarios = [
     ("complete natural-language request", lambda: text(complete).json()["status"] == "ready"),
     ("misspelled medicine", lambda: text(complete.replace("omeprazole", "ameprazole")).json()["status"] == "suggestion_available"),
@@ -96,6 +113,8 @@ scenarios = [
     ("mixed spreadsheet", lambda: len(csv_upload(header + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\nparacetamol,500 mg,tablet,,packs,20,Ghana,18,USD\n").json()["lines"]) == 2),
     ("mappable headers", lambda: csv_upload("drug;concentration;formulation;requested quantity;units;pack;market;lead time;currency\nomeprazole;20 mg;capsule;600;packs;28;Ghana;18;USD\n").json()["status"] == "ready"),
     ("duplicate products", lambda: any(item["code"] == "possible_duplicate" for item in csv_upload(header + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\nomeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n").json()["lines"][0]["findings"])),
+    ("buyer removes an accidental duplicate", lambda: duplicate_decision("remove")),
+    ("buyer confirms intentional duplicate requirements", lambda: duplicate_decision("keep_both")),
     ("irrelevant input", lambda: text("How are you today?").status_code == 422),
     ("unrelated purchasing request", lambda: text("Book three laptops for Nairobi within five days in USD.").status_code == 422),
     ("unrelated business text", lambda: text("Summarize our quarterly hiring plan.").status_code == 422),

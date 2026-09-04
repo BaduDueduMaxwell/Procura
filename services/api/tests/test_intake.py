@@ -207,6 +207,102 @@ def test_csv_aliases_semicolon_empty_rows_and_duplicates(client):
     assert all(any(item["code"] == "possible_duplicate" for item in line["findings"]) for line in body["lines"])
 
 
+def test_buyer_can_remove_restore_or_confirm_duplicate_rows(client):
+    login_buyer(client)
+    csv_data = (
+        b"medicine,strength,dosage form,quantity,units,pack size,destination,lead time,currency\n"
+        b"omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n"
+        b"omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n"
+    )
+    created = client.post(
+        "/api/intakes/files",
+        files={"file": ("duplicates.csv", csv_data, "text/csv")},
+        data={"idempotency_key": "duplicate-actions-create"},
+    ).json()
+    removed_line_id = created["lines"][1]["id"]
+    remove_body = {
+        "action": "remove",
+        "version": created["version"],
+        "idempotency_key": "duplicate-actions-remove",
+    }
+    removed = client.post(
+        f"/api/intakes/{created['id']}/lines/{removed_line_id}/duplicate",
+        json=remove_body,
+    )
+    assert removed.status_code == 200, removed.text
+    removed_body = removed.json()
+    assert removed_body["status"] == "ready"
+    assert removed_body["original_row_count"] == 2
+    assert len(removed_body["lines"]) == 1
+    assert removed_body["removed_lines"][0]["line"]["id"] == removed_line_id
+
+    repeated = client.post(
+        f"/api/intakes/{created['id']}/lines/{removed_line_id}/duplicate",
+        json=remove_body,
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["version"] == removed_body["version"]
+
+    restored = client.post(
+        f"/api/intakes/{created['id']}/lines/{removed_line_id}/duplicate",
+        json={
+            "action": "restore",
+            "version": removed_body["version"],
+            "idempotency_key": "duplicate-actions-restore",
+        },
+    )
+    assert restored.status_code == 200, restored.text
+    restored_body = restored.json()
+    assert restored_body["status"] == "needs_correction"
+    assert len(restored_body["lines"]) == 2
+    assert restored_body["removed_lines"] == []
+
+    confirmed = client.post(
+        f"/api/intakes/{created['id']}/lines/{removed_line_id}/duplicate",
+        json={
+            "action": "keep_both",
+            "version": restored_body["version"],
+            "idempotency_key": "duplicate-actions-confirm",
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "ready"
+    assert all(line["duplicate_resolution"] == "keep_both" for line in confirmed.json()["lines"])
+    assert all(not line["findings"] for line in confirmed.json()["lines"])
+
+    admin = client.post(
+        "/api/auth/login",
+        json={"email": "operations@procura.example", "password": "Procura-Admin-2026!"},
+    )
+    assert admin.status_code == 200
+    operations = client.get("/api/operations/summary").json()
+    assert operations["intake_count"] == 1
+    assert operations["intake_total_rows"] == 2
+    assert operations["intake_buyer_corrected_row_count"] == 2
+    assert operations["intake_first_pass_complete_rate"] == 0
+
+
+def test_same_medicine_with_different_quantity_is_not_a_duplicate(client):
+    login_buyer(client)
+    csv_data = (
+        b"medicine,strength,dosage form,quantity,units,pack size,destination,lead time,currency\n"
+        b"omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n"
+        b"omeprazole,20 mg,capsule,900,packs,28,Ghana,18,USD\n"
+    )
+    response = client.post(
+        "/api/intakes/files",
+        files={"file": ("separate-requirements.csv", csv_data, "text/csv")},
+        data={"idempotency_key": "different-quantity-not-duplicate"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "ready"
+    assert all(
+        finding["code"] != "possible_duplicate"
+        for line in response.json()["lines"]
+        for finding in line["findings"]
+    )
+
+
 def test_xlsx_multiple_worksheets_are_parsed(client):
     login_buyer(client)
     header = ["medicine", "strength", "dosage form", "quantity", "units", "pack size", "destination", "lead time", "currency"]

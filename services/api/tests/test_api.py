@@ -441,6 +441,8 @@ def test_operations_are_measured(client):
     data=client.get("/api/operations/summary").json(); assert data["request_count"]==1 and data["p50_latency_ms"] is None
     assert data["recent_traces"][0]["medicine_name"] == "amoxicillin"
     assert data["recent_traces"][0]["strength"] == "500 mg"
+    assert data["intake_count"] == 0
+    assert data["intake_first_pass_complete_rate"] is None
 
 
 def test_operations_aggregate_measured_provider_tokens(client):

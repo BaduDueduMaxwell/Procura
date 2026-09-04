@@ -233,6 +233,13 @@ class OperationsSummary(BaseModel):
     intake_count: int = 0
     intake_ready_count: int = 0
     intake_submitted_count: int = 0
+    intake_needs_correction_count: int = 0
+    intake_critical_review_count: int = 0
+    intake_failed_safe_count: int = 0
+    intake_total_rows: int = 0
+    intake_buyer_corrected_row_count: int = 0
+    intake_first_pass_complete_rate: float | None = None
+    median_time_to_first_feedback_ms: float | None = None
     median_time_to_valid_submission_ms: float | None = None
 
 
@@ -560,9 +567,19 @@ class IntakeLine(BaseModel):
     original_values: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
     normalized_fields: list[str] = Field(default_factory=list)
     buyer_corrected_fields: list[str] = Field(default_factory=list)
+    duplicate_resolution: Literal["keep_both"] | None = None
+    duplicate_resolved_by: str | None = None
+    duplicate_resolved_at: datetime | None = None
     findings: list[IntakeFinding] = Field(default_factory=list)
     suggestion: CatalogueSuggestion | None = None
     status: Literal["ready", "needs_correction", "suggestion_available", "critical_review_required"] = "needs_correction"
+
+
+class RemovedIntakeLine(BaseModel):
+    line: IntakeLine
+    reason: Literal["duplicate"] = "duplicate"
+    actor_id: str
+    removed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ProcurementIntake(BaseModel):
@@ -574,6 +591,8 @@ class ProcurementIntake(BaseModel):
     status: IntakeStatus = "draft"
     version: int = 1
     lines: list[IntakeLine]
+    original_row_count: int | None = None
+    removed_lines: list[RemovedIntakeLine] = Field(default_factory=list)
     graph_path: list[str] = Field(default_factory=list)
     trace_id: str
     policy_version: str = "procura-policy-v1"
@@ -609,6 +628,12 @@ class IntakeLinePatch(BaseModel):
 
 class IntakeSuggestionDecisionRequest(BaseModel):
     action: Literal["accept", "reject"]
+    version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class IntakeDuplicateDecisionRequest(BaseModel):
+    action: Literal["remove", "keep_both", "restore"]
     version: int = Field(ge=1)
     idempotency_key: str = Field(min_length=4, max_length=100)
 

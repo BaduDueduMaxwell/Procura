@@ -18,11 +18,13 @@ from app.domain.models import (
     MedicineRequirement,
     ProcurementIntake,
     ProcurementRequest,
+    RemovedIntakeLine,
 )
 from app.intake.interfaces import ParsedIntake
 from app.intake.interpreters import build_intake_interpreter
 from app.intake.parsers import SpreadsheetParser
 from app.intake.repository import SqlAlchemyIntakeRepository
+from app.intake.validators import duplicate_fingerprint
 from app.intake.workflow import IntakeWorkflow
 from app.models.database import ReviewRow, SessionLocal
 from app.observability.adapters import Observability
@@ -64,6 +66,7 @@ class BuyerIntakeService:
                 source_type="text",
                 status="failed_safe",
                 lines=[line],
+                original_row_count=1,
                 graph_path=["ingest_input", "provider_unavailable"],
                 trace_id=trace_id,
                 provider=self.interpreter.name,
@@ -95,6 +98,7 @@ class BuyerIntakeService:
             filename=parsed.filename,
             status=status,
             lines=lines,
+            original_row_count=len(lines),
             graph_path=state.get("graph_path", []),
             trace_id=trace_id,
             provider=self.interpreter.name,
@@ -122,6 +126,9 @@ class BuyerIntakeService:
         )
 
     def patch_line(self, user: AuthUser, intake_id: str, line_id: str, body: IntakeLinePatch) -> ProcurementIntake:
+        applied = self.repository.action_result(intake_id, user.id, user.role == "admin", body.idempotency_key)
+        if applied:
+            return applied
         intake = self.get(user, intake_id)
         if intake.status == "submitted":
             raise VersionConflictError("A submitted intake cannot be edited")
@@ -143,6 +150,9 @@ class BuyerIntakeService:
         return self._resume_and_save(intake, lines, body.version, body.idempotency_key)
 
     def decide_suggestion(self, user: AuthUser, intake_id: str, line_id: str, action: str, version: int, idempotency_key: str) -> ProcurementIntake:
+        applied = self.repository.action_result(intake_id, user.id, user.role == "admin", idempotency_key)
+        if applied:
+            return applied
         intake = self.get(user, intake_id)
         lines: list[IntakeLine] = []
         found = False
@@ -173,7 +183,59 @@ class BuyerIntakeService:
             raise LookupError("Catalogue suggestion not found")
         return self._resume_and_save(intake, lines, version, idempotency_key)
 
+    def resolve_duplicate(self, user: AuthUser, intake_id: str, line_id: str, action: str, version: int, idempotency_key: str) -> ProcurementIntake:
+        applied = self.repository.action_result(intake_id, user.id, user.role == "admin", idempotency_key)
+        if applied:
+            return applied
+        intake = self.get(user, intake_id)
+        if intake.status == "submitted":
+            raise VersionConflictError("A submitted intake cannot be edited")
+        if action == "restore":
+            removed = next((item for item in intake.removed_lines if item.line.id == line_id), None)
+            if not removed:
+                raise LookupError("Removed procurement row not found")
+            restored = removed.line.model_copy(update={
+                "duplicate_resolution": None,
+                "duplicate_resolved_by": None,
+                "duplicate_resolved_at": None,
+            })
+            lines = sorted([*intake.lines, restored], key=lambda line: (line.sheet_name or "", line.source_row))
+            candidate = intake.model_copy(update={
+                "removed_lines": [item for item in intake.removed_lines if item.line.id != line_id],
+            })
+            return self._resume_and_save(candidate, lines, version, idempotency_key)
+        target = next((line for line in intake.lines if line.id == line_id), None)
+        if not target:
+            raise LookupError("Procurement row not found")
+        fingerprint = duplicate_fingerprint(target)
+        duplicates = [line for line in intake.lines if duplicate_fingerprint(line) == fingerprint]
+        if len(duplicates) < 2:
+            raise ValueError("This row is no longer duplicated. Refresh the intake before continuing.")
+        if action == "remove":
+            lines = [line for line in intake.lines if line.id != line_id]
+            removed = RemovedIntakeLine(
+                line=target,
+                actor_id=user.id,
+            )
+            candidate = intake.model_copy(update={"removed_lines": [*intake.removed_lines, removed]})
+        else:
+            now = datetime.now(UTC)
+            duplicate_ids = {line.id for line in duplicates}
+            lines = [
+                line.model_copy(update={
+                    "duplicate_resolution": "keep_both",
+                    "duplicate_resolved_by": user.id,
+                    "duplicate_resolved_at": now,
+                }) if line.id in duplicate_ids else line
+                for line in intake.lines
+            ]
+            candidate = intake
+        return self._resume_and_save(candidate, lines, version, idempotency_key)
+
     def revalidate(self, user: AuthUser, intake_id: str, version: int, idempotency_key: str) -> ProcurementIntake:
+        applied = self.repository.action_result(intake_id, user.id, user.role == "admin", idempotency_key)
+        if applied:
+            return applied
         intake = self.get(user, intake_id)
         if intake.status == "failed_safe" and intake.source_type == "text":
             source = str(intake.lines[0].original_values.get("request") or "")
@@ -210,6 +272,9 @@ class BuyerIntakeService:
         return saved
 
     def submit(self, user: AuthUser, intake_id: str, version: int, idempotency_key: str) -> ProcurementIntake:
+        applied = self.repository.action_result(intake_id, user.id, user.role == "admin", idempotency_key)
+        if applied:
+            return applied
         intake = self.get(user, intake_id)
         if intake.status in {"submitted", "critical_review_required"}:
             return intake
