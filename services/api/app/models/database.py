@@ -172,6 +172,23 @@ class NotificationRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
+class ProcurementIntakeRow(Base):
+    __tablename__ = "procurement_intakes"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    buyer_id: Mapped[str] = mapped_column(String, index=True)
+    organization: Mapped[str] = mapped_column(String(120), index=True)
+    source_type: Mapped[str] = mapped_column(String(12))
+    filename: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    trace_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    create_idempotency_key: Mapped[str] = mapped_column(String(100), unique=True)
+    data: Mapped[str] = mapped_column(Text)
+    action_keys: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 def sqlalchemy_database_url(url: str) -> str:
     if url.startswith("postgresql://"):
         return url.replace("postgresql://", "postgresql+psycopg://", 1)

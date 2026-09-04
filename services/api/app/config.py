@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4.1-mini"
     llm_api_key: str | None = None
     llm_timeout_seconds: int = 30
+    intake_max_file_bytes: int = 5 * 1024 * 1024
+    intake_max_rows: int = 2000
+    langgraph_checkpoint_path: str = "./procura_graph.db"
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://cloud.langfuse.com"

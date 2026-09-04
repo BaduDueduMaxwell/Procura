@@ -9,4 +9,5 @@ class ToolTimeoutError(DomainError): code = "tool_timeout"
 class InvalidModelOutputError(DomainError): code = "invalid_model_output"
 class ProviderUnavailableError(DomainError): code = "provider_unavailable"
 class PersistenceError(DomainError): code = "persistence_error"
-
+class FileValidationError(DomainError): code = "file_validation"
+class VersionConflictError(DomainError): code = "version_conflict"

@@ -11,6 +11,14 @@ sentry-sdk[fastapi]==2.68.0
 langfuse==4.14.4
 openai==3.3.1
 google-genai==2.20.0
+langchain==1.4.0
+langchain-google-genai==4.4.0
+langgraph==1.2.11
+langgraph-checkpoint-sqlite==3.1.1
+langgraph-checkpoint-postgres==3.1.2
+openpyxl==3.1.5
+python-multipart==0.0.32
 ruff==0.16.4
+mypy==1.19.1
 pwdlib[argon2]==0.3.0
 email-validator==2.3.0

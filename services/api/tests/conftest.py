@@ -3,6 +3,7 @@ import os
 os.environ["DATABASE_URL"] = "sqlite:///./test_procura.db"
 os.environ["LLM_PROVIDER"] = "local"
 os.environ["APP_ENV"] = "test"
+os.environ["LANGGRAPH_CHECKPOINT_PATH"] = "./test_procura_graph.db"
 
 import pytest
 from app.config import get_settings

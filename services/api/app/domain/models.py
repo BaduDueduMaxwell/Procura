@@ -230,6 +230,10 @@ class OperationsSummary(BaseModel):
     langfuse_status: str
     sentry_status: str
     recent_traces: list[DashboardDecision]
+    intake_count: int = 0
+    intake_ready_count: int = 0
+    intake_submitted_count: int = 0
+    median_time_to_valid_submission_ms: float | None = None
 
 
 class AuthUser(BaseModel):
@@ -492,6 +496,126 @@ class SupplierRequestAssignment(BaseModel):
     request: ProcurementLifecycle
     invitation_status: Literal["invited", "responded"]
     supplier_response: SupplierRequestResponse | None = None
+
+
+IntakeStatus = Literal[
+    "draft",
+    "processing",
+    "needs_correction",
+    "suggestion_available",
+    "ready",
+    "submitted",
+    "critical_review_required",
+    "failed_safe",
+]
+
+
+class IntakeFinding(BaseModel):
+    code: str
+    severity: Literal["information", "warning", "blocker", "critical"]
+    message: str
+    field: str | None = None
+    row_id: str
+    evidence_source: str
+    correctable_by_buyer: bool
+    suggested_action: str
+
+
+class CatalogueSuggestion(BaseModel):
+    original_value: str
+    suggested_value: str
+    match_reason: str
+    source_record_id: str
+    confirmation_required: Literal[True] = True
+    status: Literal["pending", "accepted", "rejected"] = "pending"
+    actor_id: str | None = None
+    decided_at: datetime | None = None
+
+
+class IntakeLine(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    source_row: int = Field(ge=1)
+    sheet_name: str | None = None
+    medicine_name: str | None = None
+    brand_name: str | None = None
+    strength: str | None = None
+    dosage_form: str | None = None
+    quantity: int | None = Field(default=None, gt=0)
+    unit: str | None = None
+    pack_size: int | None = Field(default=None, gt=0)
+    destination: str | None = None
+    max_lead_time_days: int | None = Field(default=None, gt=0)
+    currency: str | None = None
+    cold_chain_required: bool = False
+    original_values: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    normalized_fields: list[str] = Field(default_factory=list)
+    buyer_corrected_fields: list[str] = Field(default_factory=list)
+    findings: list[IntakeFinding] = Field(default_factory=list)
+    suggestion: CatalogueSuggestion | None = None
+    status: Literal["ready", "needs_correction", "suggestion_available", "critical_review_required"] = "needs_correction"
+
+
+class ProcurementIntake(BaseModel):
+    id: str
+    buyer_id: str
+    organization: str
+    source_type: Literal["text", "csv", "xlsx"]
+    filename: str | None = None
+    status: IntakeStatus = "draft"
+    version: int = 1
+    lines: list[IntakeLine]
+    graph_path: list[str] = Field(default_factory=list)
+    trace_id: str
+    policy_version: str = "procura-policy-v1"
+    provider: str = "local"
+    time_to_first_feedback_ms: float | None = None
+    time_to_valid_submission_ms: float | None = None
+    first_pass_complete: bool = False
+    submitted_at: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class TextIntakeRequest(BaseModel):
+    content: str = Field(min_length=5, max_length=4000)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class IntakeLinePatch(BaseModel):
+    medicine_name: str | None = Field(default=None, max_length=120)
+    brand_name: str | None = Field(default=None, max_length=120)
+    strength: str | None = Field(default=None, max_length=40)
+    dosage_form: str | None = Field(default=None, max_length=40)
+    quantity: int | None = Field(default=None, gt=0, le=10000000)
+    unit: str | None = Field(default=None, max_length=20)
+    pack_size: int | None = Field(default=None, gt=0, le=100000)
+    destination: str | None = Field(default=None, max_length=120)
+    max_lead_time_days: int | None = Field(default=None, gt=0, le=3650)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    cold_chain_required: bool | None = None
+    version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class IntakeSuggestionDecisionRequest(BaseModel):
+    action: Literal["accept", "reject"]
+    version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class IntakeActionRequest(BaseModel):
+    version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class IntakeDashboardSummary(BaseModel):
+    total: int
+    drafts: int
+    needs_correction: int
+    ready: int
+    submitted: int
+    median_time_to_valid_submission_ms: float | None
+    recent: list[ProcurementIntake]
 
 
 SupplierDashboardSummary.model_rebuild()

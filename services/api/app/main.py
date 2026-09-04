@@ -5,12 +5,13 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 
 from app.config import get_settings
+from app.domain.errors import FileValidationError, PersistenceError, VersionConflictError
 from app.domain.models import (
     AdminOverview,
     AdminUserPage,
@@ -21,12 +22,17 @@ from app.domain.models import (
     CustomerDashboardSummary,
     DashboardDecision,
     HumanReviewCase,
+    IntakeActionRequest,
+    IntakeDashboardSummary,
+    IntakeLinePatch,
+    IntakeSuggestionDecisionRequest,
     LoginRequest,
     MedicineCatalogItem,
     MessageRequest,
     Notification,
     NotificationReadRequest,
     OperationsSummary,
+    ProcurementIntake,
     ProcurementLifecycle,
     PublishProcurementRequest,
     ReviewBrief,
@@ -42,11 +48,14 @@ from app.domain.models import (
     SupplierRequestResponseRequest,
     SupplierSubmission,
     SupplierSubmissionDecisionRequest,
+    TextIntakeRequest,
     TraceSummary,
 )
+from app.intake.service import BuyerIntakeService
 from app.models.database import (
     ExecutionRow,
     NotificationRow,
+    ProcurementIntakeRow,
     ProcurementLifecycleRow,
     QuoteRow,
     RequestSupplierRow,
@@ -96,6 +105,7 @@ policy = settings.policy_path.read_text()
 if "procura-policy-v1" not in policy: raise RuntimeError("Policy version missing")
 observability = Observability(settings)
 service = AgentService(settings, policy, observability)
+intake_service = BuyerIntakeService(settings, policy, observability)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -108,7 +118,7 @@ async def lifespan(_: FastAPI):
         await service.close()
 
 app = FastAPI(title="Procura API", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=[settings.web_origin], allow_credentials=True, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Idempotency-Key"])
+app.add_middleware(CORSMiddleware, allow_origins=[settings.web_origin], allow_credentials=True, allow_methods=["GET", "POST", "PATCH"], allow_headers=["Content-Type", "Idempotency-Key"])
 
 
 @app.middleware("http")
@@ -149,7 +159,143 @@ def is_scope_rejection(row: ExecutionRow) -> bool:
 
 
 @app.get("/health")
-def health(): return {"status": "ok", "provider": service.provider.name, "policy_version": "procura-policy-v1"}
+def health():
+    return {
+        "status": "ok",
+        "provider": service.provider.name,
+        "intake_engine": "langgraph",
+        "policy_version": "procura-policy-v1",
+    }
+
+
+def buyer_or_admin(user: AuthUser = Depends(current_user)) -> AuthUser:
+    if user.role not in {"buyer", "admin"}:
+        raise HTTPException(403, "Buyer workspace required")
+    return user
+
+
+def intake_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, FileValidationError):
+        return HTTPException(422, str(exc))
+    if isinstance(exc, VersionConflictError):
+        return HTTPException(409, str(exc))
+    if isinstance(exc, LookupError):
+        return HTTPException(404, str(exc))
+    if isinstance(exc, PersistenceError):
+        return HTTPException(503, "The intake could not be saved. Your source file was not retained.")
+    if isinstance(exc, ValueError):
+        return HTTPException(422, str(exc))
+    return HTTPException(503, "The intake could not be processed safely. Retry without losing your source file.")
+
+
+@app.post("/api/intakes/text", response_model=ProcurementIntake, status_code=201)
+def create_text_intake(body: TextIntakeRequest, user: AuthUser = Depends(buyer_or_admin)):
+    try:
+        return intake_service.create_text(user, body.content, body.idempotency_key)
+    except Exception as exc:
+        observability.capture(exc, workflow_stage="text_intake", error_category="intake_failure")
+        raise intake_error(exc) from exc
+
+
+@app.post("/api/intakes/files", response_model=ProcurementIntake, status_code=201)
+async def create_file_intake(
+    file: UploadFile = File(...),
+    idempotency_key: str = Form(..., min_length=8, max_length=120),
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    content = await file.read(settings.intake_max_file_bytes + 1)
+    await file.close()
+    try:
+        return intake_service.create_file(user, file.filename or "upload", content, file.content_type, idempotency_key)
+    except Exception as exc:
+        observability.capture(exc, workflow_stage="file_intake", error_category="intake_failure")
+        raise intake_error(exc) from exc
+
+
+@app.get("/api/intakes", response_model=list[ProcurementIntake])
+def list_intakes(user: AuthUser = Depends(buyer_or_admin)):
+    try:
+        return intake_service.list_intakes(user)
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@app.get("/api/intakes/summary", response_model=IntakeDashboardSummary)
+def intake_dashboard(user: AuthUser = Depends(buyer_or_admin)):
+    try:
+        return intake_service.dashboard(user)
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@app.get("/api/intakes/template.csv")
+def intake_template(_: AuthUser = Depends(buyer_or_admin)):
+    content = "medicine,strength,dosage form,quantity,pack size,destination,lead time,currency\n"
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="procura-intake-template.csv"'},
+    )
+
+
+@app.get("/api/intakes/{intake_id}", response_model=ProcurementIntake)
+def get_intake(intake_id: str, user: AuthUser = Depends(buyer_or_admin)):
+    try:
+        return intake_service.get(user, intake_id)
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@app.patch("/api/intakes/{intake_id}/lines/{line_id}", response_model=ProcurementIntake)
+def patch_intake_line(
+    intake_id: str,
+    line_id: str,
+    body: IntakeLinePatch,
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    try:
+        return intake_service.patch_line(user, intake_id, line_id, body)
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@app.post("/api/intakes/{intake_id}/lines/{line_id}/suggestion", response_model=ProcurementIntake)
+def decide_intake_suggestion(
+    intake_id: str,
+    line_id: str,
+    body: IntakeSuggestionDecisionRequest,
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    try:
+        return intake_service.decide_suggestion(
+            user, intake_id, line_id, body.action, body.version, body.idempotency_key
+        )
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@app.post("/api/intakes/{intake_id}/revalidate", response_model=ProcurementIntake)
+def revalidate_intake(
+    intake_id: str,
+    body: IntakeActionRequest,
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    try:
+        return intake_service.revalidate(user, intake_id, body.version, body.idempotency_key)
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@app.post("/api/intakes/{intake_id}/submit", response_model=ProcurementIntake)
+def submit_intake(
+    intake_id: str,
+    body: IntakeActionRequest,
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    try:
+        return intake_service.submit(user, intake_id, body.version, body.idempotency_key)
+    except Exception as exc:
+        raise intake_error(exc) from exc
 
 
 @app.post("/api/auth/signup", response_model=AuthUser, status_code=201)
@@ -588,7 +734,9 @@ def operations(_: AuthUser = Depends(admin_user)):
         measured_costs = [trace.estimated_cost_usd for trace in all_traces if trace.estimated_cost_usd is not None]
         eval_path = Path(__file__).parents[1] / "evals" / "results" / "latest.json"
         eval_rate = json.loads(eval_path.read_text()).get("pass_rate") if eval_path.exists() else None
-        return OperationsSummary(request_count=len(rows), autonomous_recommendation_count=sum(r.decision == "recommended" for r in rows), human_review_count=sum(r.decision in ("review_required", "failed_safe") for r in rows), error_count=sum(r.decision == "failed_safe" for r in rows), p50_latency_ms=p50, p95_latency_ms=p95, token_usage=sum(measured_tokens) if measured_tokens else None, estimated_cost_usd=round(sum(measured_costs), 6) if measured_costs else None, evaluation_pass_rate=eval_rate, langfuse_status="Configured" if observability.langfuse_enabled else "Langfuse not configured", sentry_status="Configured" if observability.sentry_enabled else "Sentry not configured", recent_traces=traces)
+        intake_rows = [ProcurementIntake.model_validate_json(item.data) for item in db.scalars(select(ProcurementIntakeRow)).all()]
+        intake_times = [item.time_to_valid_submission_ms for item in intake_rows if item.time_to_valid_submission_ms is not None]
+        return OperationsSummary(request_count=len(rows), autonomous_recommendation_count=sum(r.decision == "recommended" for r in rows), human_review_count=sum(r.decision in ("review_required", "failed_safe") for r in rows), error_count=sum(r.decision == "failed_safe" for r in rows), p50_latency_ms=p50, p95_latency_ms=p95, token_usage=sum(measured_tokens) if measured_tokens else None, estimated_cost_usd=round(sum(measured_costs), 6) if measured_costs else None, evaluation_pass_rate=eval_rate, langfuse_status="Configured" if observability.langfuse_enabled else "Langfuse not configured", sentry_status="Configured" if observability.sentry_enabled else "Sentry not configured", recent_traces=traces, intake_count=len(intake_rows), intake_ready_count=sum(item.status == "ready" for item in intake_rows), intake_submitted_count=sum(item.status == "submitted" for item in intake_rows), median_time_to_valid_submission_ms=statistics.median(intake_times) if intake_times else None)
 
 
 @app.get("/api/admin/overview", response_model=AdminOverview)
