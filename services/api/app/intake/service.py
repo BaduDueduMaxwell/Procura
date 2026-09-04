@@ -20,6 +20,7 @@ from app.domain.models import (
     ProcurementRequest,
     RemovedIntakeLine,
 )
+from app.intake.catalogue_options import attach_catalogue_options, catalogue_options_for
 from app.intake.interfaces import ParsedIntake
 from app.intake.interpreters import build_intake_interpreter
 from app.intake.parsers import SpreadsheetParser
@@ -87,7 +88,7 @@ class BuyerIntakeService:
 
     def _run_new(self, user: AuthUser, parsed: ParsedIntake, intake_id: str, trace_id: str, started: float) -> ProcurementIntake:
         state = self.workflow.start(intake_id, parsed.lines)
-        lines = [IntakeLine.model_validate(line) for line in state.get("lines", [])]
+        lines = attach_catalogue_options([IntakeLine.model_validate(line) for line in state.get("lines", [])])
         status = cast(IntakeStatus, state.get("status", "needs_correction"))
         elapsed = round((time.perf_counter() - started) * 1000, 2)
         return ProcurementIntake(
@@ -183,6 +184,46 @@ class BuyerIntakeService:
             raise LookupError("Catalogue suggestion not found")
         return self._resume_and_save(intake, lines, version, idempotency_key)
 
+    def select_variant(self, user: AuthUser, intake_id: str, line_id: str, source_record_id: str, version: int, idempotency_key: str) -> ProcurementIntake:
+        applied = self.repository.action_result(intake_id, user.id, user.role == "admin", idempotency_key)
+        if applied:
+            return applied
+        intake = self.get(user, intake_id)
+        if intake.status == "submitted":
+            raise VersionConflictError("A submitted intake cannot be edited")
+        lines: list[IntakeLine] = []
+        found = False
+        for line in intake.lines:
+            if line.id != line_id:
+                lines.append(line)
+                continue
+            found = True
+            option = next(
+                (candidate for candidate in catalogue_options_for(line) if candidate.source_record_id == source_record_id),
+                None,
+            )
+            if option is None:
+                raise LookupError("That catalogue variant is no longer available. Refresh the intake and choose another option.")
+            variant_fields = {
+                "medicine_name": option.medicine_name,
+                "strength": option.strength,
+                "dosage_form": option.dosage_form,
+                "pack_size": option.pack_size,
+            }
+            changed_fields = {
+                key for key, value in variant_fields.items() if value != getattr(line, key)
+            }
+            lines.append(line.model_copy(update={
+                **variant_fields,
+                "buyer_corrected_fields": sorted({*line.buyer_corrected_fields, *changed_fields}),
+                "selected_catalogue_source_id": option.source_record_id,
+                "catalogue_selected_by": user.id,
+                "catalogue_selected_at": datetime.now(UTC),
+            }))
+        if not found:
+            raise LookupError("Procurement row not found")
+        return self._resume_and_save(intake, lines, version, idempotency_key)
+
     def resolve_duplicate(self, user: AuthUser, intake_id: str, line_id: str, action: str, version: int, idempotency_key: str) -> ProcurementIntake:
         applied = self.repository.action_result(intake_id, user.id, user.role == "admin", idempotency_key)
         if applied:
@@ -245,7 +286,7 @@ class BuyerIntakeService:
                 return intake
             state = self.workflow.start(intake.id, [line])
             recovered = intake.model_copy(update={
-                "lines": [IntakeLine.model_validate(item) for item in state.get("lines", [])],
+                "lines": attach_catalogue_options([IntakeLine.model_validate(item) for item in state.get("lines", [])]),
                 "status": state.get("status", "needs_correction"),
                 "graph_path": state.get("graph_path", []),
             })
@@ -256,7 +297,7 @@ class BuyerIntakeService:
         if version != intake.version:
             raise VersionConflictError("This intake changed in another session. Refresh before editing it.")
         state = self.workflow.resume(intake.id, lines)
-        updated_lines = [IntakeLine.model_validate(line) for line in state.get("lines", [])]
+        updated_lines = attach_catalogue_options([IntakeLine.model_validate(line) for line in state.get("lines", [])])
         status = state.get("status", "needs_correction")
         valid_ms = intake.time_to_valid_submission_ms
         if status == "ready" and valid_ms is None:

@@ -96,6 +96,29 @@ def duplicate_decision(action: str):
     )
 
 
+def variant_recommendation_preserves_requirement():
+    created = text("We need 500 packs of ceftriaxone 1 g vials, pack size 5, delivered to Ghana within 14 days in USD.").json()
+    line = created["lines"][0]
+    option = next(item for item in line["catalogue_options"] if item["pack_size"] == 10)
+    selected = client.post(
+        f"/api/intakes/{created['id']}/lines/{line['id']}/variant",
+        json={
+            "source_record_id": option["source_record_id"],
+            "version": created["version"],
+            "idempotency_key": str(uuid4()),
+        },
+    ).json()
+    corrected = selected["lines"][0]
+    return (
+        selected["status"] == "ready"
+        and corrected["pack_size"] == 10
+        and corrected["quantity"] == 500
+        and corrected["destination"] == "Ghana"
+        and corrected["max_lead_time_days"] == 14
+        and corrected["currency"] == "USD"
+    )
+
+
 scenarios = [
     ("complete natural-language request", lambda: text(complete).json()["status"] == "ready"),
     ("misspelled medicine", lambda: text(complete.replace("omeprazole", "ameprazole")).json()["status"] == "suggestion_available"),
@@ -106,6 +129,9 @@ scenarios = [
     ("ambiguous catalogue match", lambda: text("We need 600 packs of amoxicillin delivered to Ghana within 18 days in USD.").json()["status"] == "needs_correction"),
     ("missing required fields", lambda: text("We need omeprazole 20 mg capsules, pack size 28.").json()["status"] == "needs_correction"),
     ("wrong dosage form", lambda: text(complete.replace("capsules", "tablets")).json()["lines"][0]["findings"][0]["code"] == "catalogue_variant_mismatch"),
+    ("lowercase medicine identity is accepted", lambda: text("We need 500 packs of ceftriaxone 1 g vials, pack size 10, delivered to Ghana within 18 days in USD.").json()["status"] == "ready"),
+    ("variant mismatch returns repository evidence", lambda: bool(text("We need 500 packs of ceftriaxone 1 g vials, pack size 5, delivered to Ghana within 14 days in USD.").json()["lines"][0]["catalogue_options"])),
+    ("variant selection preserves buyer requirements", variant_recommendation_preserves_requirement),
     ("strength ambiguity", lambda: text(complete.replace("20 mg", "40 mg")).json()["status"] == "needs_correction"),
     ("pack versus unit ambiguity", lambda: text(complete.replace("600 packs", "600 units")).json()["status"] == "needs_correction"),
     ("valid spreadsheet", lambda: csv_upload(header + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n").json()["status"] == "ready"),

@@ -1,5 +1,12 @@
 Feature: Role workflows begin with guided assistance
 
+  Scenario: A buyer chooses a repository-backed medicine variant
+    Given a Ceftriaxone row requests pack size 5 while the catalogue offers pack size 10
+    When Procura displays the available catalogue variant
+    Then the buyer sees supplier coverage, destinations, currencies, capacity, lead time, and price range
+    And choosing the variant changes the pack size but preserves the requested quantity and delivery requirement
+    And Procura records who selected the catalogue source and when
+
   Scenario: A buyer resolves a duplicate without leaving Procura
     Given an uploaded procurement list contains the same requirement twice
     When the buyer reviews the duplicate finding

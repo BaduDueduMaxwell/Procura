@@ -1,8 +1,8 @@
 {
   "suite": "buyer-intake-v1",
   "provider": "local",
-  "passed": 28,
-  "total": 28,
+  "passed": 31,
+  "total": 31,
   "pass_rate": 1.0,
   "threshold": 0.9,
   "results": [
@@ -48,6 +48,21 @@
     },
     {
       "scenario": "wrong dosage form",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "lowercase medicine identity is accepted",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "variant mismatch returns repository evidence",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "variant selection preserves buyer requirements",
       "passed": true,
       "detail": "Observed expected buyer or critical-review route"
     },

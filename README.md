@@ -44,6 +44,8 @@ Use `/intake` to enter one natural-language requirement or upload a CSV/XLSX lis
 
 Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. Duplicate rows present a direct choice to remove the row or confirm that both entries are intentional; removed rows remain visible and can be restored before submission. Catalogue suggestions must be accepted or rejected by the signed-in buyer, and every correction records the actor and timestamp. The hosted Gemini interpreter classifies procurement intent semantically as part of its typed output rather than gating requests on a fixed phrase list. The no-key provider uses catalogue-independent clinical structure so unseen medicine names can still reach buyer correction. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
 
+When a known medicine has the wrong strength, form, or pack size, Procura presents repository-backed variants before the manual editor. Each option shows the exact field changes, verified-supplier count, active quotations, capacity, supported destinations and currencies, fastest quoted delivery, price range, and cold-chain coverage. The buyer can apply a supported destination or currency explicitly and can accept a variant in one action. Variant selection changes only medicine identity fields; requested quantity, destination, delivery requirement, and currency remain unchanged unless the buyer separately changes them. Unknown medicines receive no invented recommendation.
+
 Brand normalization is deterministic. `knowledge/GHANA_MEDICINE_BRANDS.json` contains curated public reference records from the Ghana FDA Product Register, the retrieval date, registration expiry, manufacturer, active ingredient, and direct record URL. The application never queries the public register during a buyer request, so registry downtime cannot block intake. Expired records are ignored, unknown brands remain unresolved, and every recognized mapping requires buyer confirmation. Supplier, price, quotation, and inventory records remain fictional application data.
 
 ## Run locally on port 3001
@@ -156,6 +158,7 @@ make down    # stop Docker services
 | `GET` | `/api/intakes` | Owning buyer or admin |
 | `PATCH` | `/api/intakes/{id}/lines/{line_id}` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/lines/{line_id}/suggestion` | Owning buyer or admin |
+| `POST` | `/api/intakes/{id}/lines/{line_id}/variant` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/lines/{line_id}/duplicate` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/revalidate` | Owning buyer or admin |
 | `POST` | `/api/intakes/{id}/submit` | Owning buyer or admin |
@@ -250,7 +253,7 @@ cd services/web && npm test -- --run
 cd ../api && python evals/run.py
 ```
 
-The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **28/28 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, duplicate removal and intentional-duplicate confirmation, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. The gate suites currently pass **99 backend tests** and **31 frontend tests**. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
+The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **31/31 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, catalogue-backed variant selection, quantity preservation, duplicate removal and intentional-duplicate confirmation, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. The gate suites currently pass **102 backend tests** and **32 frontend tests**. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
 
 ## Deployment and observability
 

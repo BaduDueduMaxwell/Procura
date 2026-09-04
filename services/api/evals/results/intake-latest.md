@@ -1,6 +1,6 @@
 # Buyer intake evaluation
 
-Result: **28/28 (100%)**. Threshold: 90%.
+Result: **31/31 (100%)**. Threshold: 90%.
 
 | Scenario | Result |
 |---|---|
@@ -13,6 +13,9 @@ Result: **28/28 (100%)**. Threshold: 90%.
 | ambiguous catalogue match | PASS |
 | missing required fields | PASS |
 | wrong dosage form | PASS |
+| lowercase medicine identity is accepted | PASS |
+| variant mismatch returns repository evidence | PASS |
+| variant selection preserves buyer requirements | PASS |
 | strength ambiguity | PASS |
 | pack versus unit ambiguity | PASS |
 | valid spreadsheet | PASS |

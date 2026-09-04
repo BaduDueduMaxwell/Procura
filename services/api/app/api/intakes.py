@@ -11,6 +11,7 @@ from app.domain.models import (
     IntakeDuplicateDecisionRequest,
     IntakeLinePatch,
     IntakeSuggestionDecisionRequest,
+    IntakeVariantDecisionRequest,
     ProcurementIntake,
     TextIntakeRequest,
 )
@@ -138,6 +139,22 @@ def decide_intake_suggestion(
     try:
         return service(request).decide_suggestion(
             user, intake_id, line_id, body.action, body.version, body.idempotency_key
+        )
+    except Exception as exc:
+        raise intake_error(exc) from exc
+
+
+@router.post("/{intake_id}/lines/{line_id}/variant", response_model=ProcurementIntake)
+def select_intake_variant(
+    intake_id: str,
+    line_id: str,
+    body: IntakeVariantDecisionRequest,
+    request: Request,
+    user: AuthUser = Depends(buyer_or_admin),
+):
+    try:
+        return service(request).select_variant(
+            user, intake_id, line_id, body.source_record_id, body.version, body.idempotency_key
         )
     except Exception as exc:
         raise intake_error(exc) from exc

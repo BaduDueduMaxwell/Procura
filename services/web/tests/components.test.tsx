@@ -130,6 +130,29 @@ describe("buyer intake correction workflow", () => {
     expect(screen.getByRole("button", {name:/accept mapping/i})).toBeInTheDocument();
   });
 
+  it("shows a catalogue variant with coverage and preserves the requested quantity", async () => {
+    window.history.replaceState({}, "", "/intake/intake-variant");
+    const option = {
+      source_record_id:"catalogue:ceftriaxone:1 g:vial:pack-10",medicine_name:"ceftriaxone",strength:"1 g",dosage_form:"vial",pack_size:10,
+      differences:["Pack size: 5 → 10"],quotation_count:3,authorized_supplier_count:2,available_quantity_packs:500,currencies:["EUR","USD"],destinations:["Ghana","Kenya","Uganda"],cold_chain_available:true,minimum_lead_time_days:17,unit_price_from:16.8,unit_price_to:18.4,
+    };
+    const line = {...suggestion.lines[0],id:"line-variant",medicine_name:"ceftriaxone",strength:"1 g",dosage_form:"vial",quantity:500,pack_size:5,status:"needs_correction" as const,suggestion:undefined,catalogue_options:[option],findings:[{code:"catalogue_variant_mismatch",severity:"blocker" as const,message:"The strength, dosage form, and pack size do not match one catalogue variant.",field:"medicine_name",row_id:"line-variant",evidence_source:"synthetic-catalogue",correctable_by_buyer:true,suggested_action:"Choose an available catalogue variant"}]};
+    const intake: ProcurementIntake = {...suggestion,id:"intake-variant",status:"needs_correction",lines:[line]};
+    const selected: ProcurementIntake = {...intake,status:"ready",version:2,lines:[{...line,pack_size:10,status:"ready",findings:[],selected_catalogue_source_id:option.source_record_id,buyer_corrected_fields:["pack_size"]}]};
+    vi.spyOn(api, "intakes").mockResolvedValue([intake]);
+    const select = vi.spyOn(api, "selectIntakeVariant").mockResolvedValue(selected);
+
+    render(<BuyerIntake/>);
+    expect(await screen.findByText("Available catalogue variant")).toBeVisible();
+    expect(screen.getByText("Pack size: 5 → 10")).toBeVisible();
+    expect(screen.getByText("Ghana, Kenya, Uganda")).toBeVisible();
+    expect(screen.getByText("500 packs will remain unchanged.")).toBeVisible();
+    expect(screen.getByText("EUR, USD")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name:/use this variant/i}));
+    await waitFor(() => expect(select).toHaveBeenCalledWith("intake-variant", "line-variant", 1, option.source_record_id));
+    expect((await screen.findAllByText("Ready"))[0]).toBeVisible();
+  });
+
   it("lets a buyer remove, restore, or keep duplicate rows inside the workspace", async () => {
     window.history.replaceState({}, "", "/intake/intake-duplicates");
     const finding = {code:"possible_duplicate",severity:"blocker" as const,message:"This product appears more than once in the list.",field:"medicine_name",row_id:"line-duplicate-1",evidence_source:"procura-policy-v1",correctable_by_buyer:true,suggested_action:"Confirm or remove the duplicate"};

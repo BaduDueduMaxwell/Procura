@@ -188,6 +188,83 @@ def test_missing_fields_return_buyer_checklist_and_changed_row_revalidates(clien
     }
 
 
+def test_catalogue_variant_recommendation_preserves_buyer_requirements(client):
+    response = text_intake(
+        client,
+        "We need 500 packs of ceftriaxone 1 g vials, pack size 5, delivered to Ghana within 14 days in USD.",
+        "intake-variant-001",
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    line = body["lines"][0]
+    assert body["status"] == "needs_correction"
+    assert any(item["code"] == "catalogue_variant_mismatch" for item in line["findings"])
+    assert line["medicine_name"] == "ceftriaxone"
+    option = next(item for item in line["catalogue_options"] if item["pack_size"] == 10)
+    assert "Pack size: 5 → 10" in option["differences"]
+    assert option["destinations"] == ["Ghana", "Kenya", "Uganda"]
+    assert option["currencies"] == ["EUR", "USD"]
+    assert option["available_quantity_packs"] == 500
+
+    decision = {
+        "source_record_id": option["source_record_id"],
+        "version": body["version"],
+        "idempotency_key": "select-variant-001",
+    }
+    selected = client.post(
+        f"/api/intakes/{body['id']}/lines/{line['id']}/variant",
+        json=decision,
+    )
+    assert selected.status_code == 200, selected.text
+    selected_body = selected.json()
+    selected_line = selected_body["lines"][0]
+    assert selected_body["status"] == "ready"
+    assert selected_line["pack_size"] == 10
+    assert selected_line["quantity"] == 500
+    assert selected_line["destination"] == "Ghana"
+    assert selected_line["max_lead_time_days"] == 14
+    assert selected_line["currency"] == "USD"
+    assert selected_line["buyer_corrected_fields"] == ["pack_size"]
+    assert selected_line["selected_catalogue_source_id"] == option["source_record_id"]
+    assert selected_line["catalogue_selected_by"] is not None
+    assert selected_line["catalogue_selected_at"] is not None
+
+    repeated = client.post(
+        f"/api/intakes/{body['id']}/lines/{line['id']}/variant",
+        json=decision,
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["version"] == selected_body["version"]
+
+
+def test_catalogue_variant_selection_rejects_untrusted_source_id(client):
+    body = text_intake(
+        client,
+        "We need 500 packs of ceftriaxone 1 g vials, pack size 5, delivered to Ghana within 14 days in USD.",
+        "intake-variant-untrusted",
+    ).json()
+    response = client.post(
+        f"/api/intakes/{body['id']}/lines/{body['lines'][0]['id']}/variant",
+        json={
+            "source_record_id": "catalogue:invented:20 mg:tablet:pack-1",
+            "version": body["version"],
+            "idempotency_key": "select-variant-untrusted",
+        },
+    )
+    assert response.status_code == 404
+    assert "no longer available" in response.json()["detail"]
+
+
+def test_unknown_medicine_does_not_receive_an_invented_variant(client):
+    body = text_intake(
+        client,
+        "Purchase 400 packs of triclabendazole 250 mg tablets, pack size 10, delivered to Ghana within 30 days in USD.",
+        "intake-no-invented-option",
+    ).json()
+    assert body["status"] == "needs_correction"
+    assert body["lines"][0]["catalogue_options"] == []
+
+
 def test_csv_aliases_semicolon_empty_rows_and_duplicates(client):
     login_buyer(client)
     csv_data = (

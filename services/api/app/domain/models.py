@@ -549,6 +549,24 @@ class CatalogueSuggestion(BaseModel):
     decided_at: datetime | None = None
 
 
+class IntakeCatalogueOption(BaseModel):
+    source_record_id: str
+    medicine_name: str
+    strength: str
+    dosage_form: str
+    pack_size: int
+    differences: list[str] = Field(default_factory=list)
+    quotation_count: int
+    authorized_supplier_count: int
+    available_quantity_packs: int
+    currencies: list[str]
+    destinations: list[str]
+    cold_chain_available: bool
+    minimum_lead_time_days: int
+    unit_price_from: float
+    unit_price_to: float
+
+
 class IntakeLine(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     source_row: int = Field(ge=1)
@@ -572,6 +590,10 @@ class IntakeLine(BaseModel):
     duplicate_resolved_at: datetime | None = None
     findings: list[IntakeFinding] = Field(default_factory=list)
     suggestion: CatalogueSuggestion | None = None
+    catalogue_options: list[IntakeCatalogueOption] = Field(default_factory=list)
+    selected_catalogue_source_id: str | None = None
+    catalogue_selected_by: str | None = None
+    catalogue_selected_at: datetime | None = None
     status: Literal["ready", "needs_correction", "suggestion_available", "critical_review_required"] = "needs_correction"
 
 
@@ -628,6 +650,12 @@ class IntakeLinePatch(BaseModel):
 
 class IntakeSuggestionDecisionRequest(BaseModel):
     action: Literal["accept", "reject"]
+    version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=4, max_length=100)
+
+
+class IntakeVariantDecisionRequest(BaseModel):
+    source_record_id: str = Field(min_length=8, max_length=300)
     version: int = Field(ge=1)
     idempotency_key: str = Field(min_length=4, max_length=100)
 
