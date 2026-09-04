@@ -1,6 +1,6 @@
 # Buyer intake evaluation
 
-Result: **19/19 (100%)**. Threshold: 90%.
+Result: **22/22 (100%)**. Threshold: 90%.
 
 | Scenario | Result |
 |---|---|
@@ -17,6 +17,9 @@ Result: **19/19 (100%)**. Threshold: 90%.
 | mappable headers | PASS |
 | duplicate products | PASS |
 | irrelevant input | PASS |
+| unrelated purchasing request | PASS |
+| unrelated business text | PASS |
+| unseen medicine reaches catalogue correction | PASS |
 | prompt injection in cell | PASS |
 | Gemini 429 preserves draft | PASS |
 | provider timeout preserves draft | PASS |

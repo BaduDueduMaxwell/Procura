@@ -41,7 +41,7 @@ The graph fixes the order: ingest, parse, normalize, catalogue match, row valida
 
 Use `/intake` to enter one natural-language requirement or upload a CSV/XLSX list. Files are limited to 5 MB and 2,000 rows, formulas are rejected rather than evaluated, and XLSX archives are bounded before extraction. Header aliases map familiar procurement headings without changing cell values. Every row keeps its original values and receives typed findings, a status, an evidence source, and a suggested action.
 
-Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. A catalogue suggestion must be accepted or rejected by the signed-in buyer and records the actor and timestamp. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
+Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. A catalogue suggestion must be accepted or rejected by the signed-in buyer and records the actor and timestamp. The hosted Gemini interpreter classifies procurement intent semantically as part of its typed output rather than gating requests on a fixed phrase list. The no-key provider uses catalogue-independent clinical structure so unseen medicine names can still reach buyer correction. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
 
 ## Run locally on port 3001
 
@@ -246,7 +246,7 @@ cd services/web && npm test -- --run
 cd ../api && python evals/run.py
 ```
 
-The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **19/19 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, ambiguous variants, duplicates, prompt injection content, irrelevant input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
+The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **22/22 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, unseen medicines, ambiguous variants, duplicates, prompt injection content, varied irrelevant and non-medical purchasing input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
 
 ## Deployment and observability
 

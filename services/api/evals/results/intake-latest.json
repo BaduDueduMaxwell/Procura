@@ -1,8 +1,8 @@
 {
   "suite": "buyer-intake-v1",
   "provider": "local",
-  "passed": 19,
-  "total": 19,
+  "passed": 22,
+  "total": 22,
   "pass_rate": 1.0,
   "threshold": 0.9,
   "results": [
@@ -68,6 +68,21 @@
     },
     {
       "scenario": "irrelevant input",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "unrelated purchasing request",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "unrelated business text",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "unseen medicine reaches catalogue correction",
       "passed": true,
       "detail": "Observed expected buyer or critical-review route"
     },
