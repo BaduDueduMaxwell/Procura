@@ -1,6 +1,6 @@
 # Procura
 
-Procura is a pharmaceutical procurement operations workspace that converts conversational requests into consistent, auditable supplier decisions.
+Procura is a pharmaceutical procurement operations workspace that turns text, CSV, and XLSX medicine requirements into complete, validated submissions before supplier review begins.
 
 The bundled local dataset uses fictional suppliers, quotes, authorizations, and scenarios. Procura supports procurement review and internal supplier-portal responses; it does not place orders, send external supplier communications, approve compliance, or provide legal or regulatory advice.
 
@@ -17,6 +17,8 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 - Buyers search a database-backed medicine index before starting a request. The API filters server-side and returns at most six focused results to the workspace, with current supplier, quotation, and delivery evidence.
 - Shared trace IDs connect local metrics, optional Langfuse observations, and privacy-safe Sentry errors.
 - Twelve readable deterministic evaluations and separate backend/frontend gate tests.
+- A LangGraph buyer-intake workflow persists row-level progress, pauses for buyer corrections, resumes after confirmation, and sends only unresolved critical conditions to review.
+- LangChain provides the typed Gemini integration and tool contracts. The no-key local interpreter runs the same deterministic graph in development and CI.
 
 ## Architecture
 
@@ -24,16 +26,22 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 flowchart LR
   U[Buyer, supplier, reviewer, or admin] --> W[Next.js web app]
   W -->|HttpOnly session + typed JSON| A[FastAPI API]
-  A --> O[Explicit agent orchestrator]
-  O --> P[Local or hosted LLM provider]
-  O --> T[Deterministic policy tools]
+  A --> G[LangGraph intake workflow]
+  G --> P[LangChain local or Gemini interpreter]
+  G --> T[Deterministic catalogue and validation tools]
   T --> D[(SQLite)]
   O --> R[Human review cases]
   O -. sanitized traces .-> L[Langfuse optional]
   A -. safe errors .-> S[Sentry optional]
 ```
 
-The model interprets wording and proposes a typed request/tool sequence. Python owns factual supplier evidence, calculations, hard eligibility gates, and ranking. Eligible quotations use the documented formula `0.50 × price score + 0.25 × delivery score + 0.25 × reliability`, after hard eligibility checks. Policy is loaded from `knowledge/PROCUREMENT_POLICY.md` at startup and every decision records `procura-policy-v1`.
+The graph fixes the order: ingest, parse, normalize, catalogue match, row validation, finding classification, buyer correction interrupt, revalidation, and ready-for-submission. The model interprets wording and proposes typed fields. It cannot skip Python checks or silently accept a medicine correction. Python owns catalogue evidence, calculations, hard eligibility gates, and ranking. Eligible quotations use the documented formula `0.50 × price score + 0.25 × delivery score + 0.25 × reliability`, after hard eligibility checks. Policy is loaded from `knowledge/PROCUREMENT_POLICY.md` at startup and every intake records `procura-policy-v1`.
+
+## Buyer intake engine
+
+Use `/intake` to enter one natural-language requirement or upload a CSV/XLSX list. Files are limited to 5 MB and 2,000 rows, formulas are rejected rather than evaluated, and XLSX archives are bounded before extraction. Header aliases map familiar procurement headings without changing cell values. Every row keeps its original values and receives typed findings, a status, an evidence source, and a suggested action.
+
+Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. A catalogue suggestion must be accepted or rejected by the signed-in buyer and records the actor and timestamp. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
 
 ## Run locally on port 3001
 
@@ -79,11 +87,11 @@ Password: Procura-Supplier-2026!
 
 Supplier accounts can maintain their linked profile, authorization claim, capabilities, active quotations, withdrawals, and submission history. They can also respond to buyer requests sent to their linked medicine coverage without viewing the buyer conversation. Changes and request-specific offers remain pending until staff review. Suppliers cannot access unrelated requests or staff operations.
 
-Authenticated browser routes are `/dashboard`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, `/operations`, and `/admin`. Role checks are enforced by the API as well as the interface.
+Authenticated browser routes are `/dashboard`, `/intake`, `/workspace`, `/supplier`, `/reviews`, `/reviews/suppliers`, `/operations`, and `/admin`. Role checks are enforced by the API as well as the interface.
 
 | Role | Default route | Access |
 |---|---|---|
-| Buyer | `/dashboard` | Dashboard and procurement workspace |
+| Buyer | `/dashboard` | Dashboard, buyer intake, and completed decision workspace |
 | Supplier | `/supplier` | Its linked supplier profile, quotation drafting, quotations, and submission history |
 | Reviewer | `/reviews` | Evidence briefs, procurement decisions, and supplier approvals |
 | Operations admin | `/operations` | Every internal buyer, review, supplier-approval, operations, and read-only administration route; no supplier impersonation |
@@ -140,6 +148,13 @@ make down    # stop Docker services
 | `POST` | `/api/auth/logout` | Session |
 | `GET` | `/api/auth/me` | Session |
 | `GET` | `/api/dashboard/summary` | Buyer or staff |
+| `POST` | `/api/intakes/text` | Buyer or admin |
+| `POST` | `/api/intakes/files` | Buyer or admin |
+| `GET` | `/api/intakes` | Owning buyer or admin |
+| `PATCH` | `/api/intakes/{id}/lines/{line_id}` | Owning buyer or admin |
+| `POST` | `/api/intakes/{id}/lines/{line_id}/suggestion` | Owning buyer or admin |
+| `POST` | `/api/intakes/{id}/revalidate` | Owning buyer or admin |
+| `POST` | `/api/intakes/{id}/submit` | Owning buyer or admin |
 | `GET` | `/api/catalog/medicines?q=paracetamol&limit=6` | Buyer or admin |
 | `GET` | `/api/supplier/dashboard` | Linked supplier |
 | `POST` | `/api/supplier/submissions/profile` | Linked supplier |
@@ -180,6 +195,9 @@ Copy `.env.example` to `.env`. `.env` and SQLite databases are ignored by Git.
 | `LLM_API_KEY` | empty | Hosted provider credential, stored only in the API environment |
 | `LLM_TIMEOUT_SECONDS` | `30` | Hosted-provider request deadline before safe escalation |
 | `DATABASE_URL` | SQLite | Application database |
+| `LANGGRAPH_CHECKPOINT_PATH` | `./procura-graph.db` | Durable local graph state |
+| `INTAKE_MAX_FILE_BYTES` | `5242880` | File upload limit |
+| `INTAKE_MAX_ROWS` | `2000` | Total rows per upload |
 | `APP_ENV` | `development` | Disables development controls and local accounts in production |
 | `BOOTSTRAP_BUYER_*` | empty | Optional seeded buyer credentials |
 | `BOOTSTRAP_REVIEWER_*` | empty | Provisioned reviewer credentials |
@@ -193,7 +211,7 @@ No credentials are committed. Missing Langfuse or Sentry credentials select no-o
 
 ### Gemini
 
-Procura uses Google's official `google-genai` SDK for hosted Gemini execution. Gemini interprets the buyer's stated facts and makes one function call authorizing Procura's fixed deterministic evaluation sequence. Python still owns supplier search, authorization, destination, cold-chain, unit, deadline, price, and ranking decisions.
+Procura uses `langchain-google-genai` for hosted Gemini structured output. Gemini interprets only the buyer's stated facts. LangGraph owns routing and Python owns catalogue matching, supplier search, authorization, destination, cold-chain, unit, deadline, price, and ranking decisions.
 
 Set the following in the API environment. Use a Gemini model ID that is enabled in your Google AI Studio project. Do not expose this key through a `NEXT_PUBLIC_` variable or commit it to Git.
 
@@ -228,7 +246,7 @@ cd services/web && npm test -- --run
 cd ../api && python evals/run.py
 ```
 
-The latest deterministic run passed **15/15 scenarios (100%)** against a 90% threshold. It covers eligible selection, delivery failure, missing/expired authorization, ambiguity, pack size, destination, cold chain, currency, price anomaly, no eligible quote, tool timeout, out-of-scope follow-ups, compact strength formatting, and medicine typo confirmation. Results are generated from actual executions and written to `services/api/evals/results/latest.json` and `latest.md`.
+The supplier-decision suite remains separate and passed **15/15 scenarios (100%)**. The buyer-intake suite passed **19/19 scenarios (100%)** against a 90% threshold. It covers text, files, missing fields, brand and spelling suggestions, ambiguous variants, duplicates, prompt injection content, irrelevant input, 429, timeout, invalid model output, regulatory exception routing, and critical review after supplier eligibility checks. Results are generated from actual executions and written to `services/api/evals/results/intake-latest.json` and `intake-latest.md`.
 
 ## Deployment and observability
 

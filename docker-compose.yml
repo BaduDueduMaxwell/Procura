@@ -15,6 +15,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       WEB_ORIGIN: http://localhost:${WEB_PORT:-3001}
       POLICY_PATH: /knowledge/PROCUREMENT_POLICY.md
+      LANGGRAPH_CHECKPOINT_PATH: /data/procura-graph.db
     ports: ["8000:8000"]
     volumes: ["procura_data:/data"]
     healthcheck:
