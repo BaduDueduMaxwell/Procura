@@ -1,6 +1,9 @@
 from io import BytesIO
 
 import pytest
+from app.domain.models import IntakeLine
+from app.intake.brand_catalogue import load_ghana_brand_catalogue
+from app.intake.validators import match_catalogue
 from app.models.database import ProcurementIntakeRow, ReviewRow, SessionLocal
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
@@ -71,6 +74,86 @@ def test_misspelling_is_buyer_suggestion_not_staff_review(client):
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["status"] == "ready"
     assert accepted.json()["lines"][0]["suggestion"]["status"] == "accepted"
+
+
+@pytest.mark.parametrize(
+    ("brand", "generic", "manufacturer"),
+    [
+        ("Locid", "omeprazole", "Kinapharma Limited"),
+        ("Coartem", "artemether-lumefantrine", "Novartis Pharma Stein AG"),
+        ("Glucophage", "metformin", "Merck Sante SAS"),
+        ("Ciprobay", "ciprofloxacin", "Bayer AG"),
+        ("Dialet", "glibenclamide", "Letap Pharmaceuticals Limited"),
+    ],
+)
+def test_verified_ghana_brands_create_sourced_buyer_suggestions(brand, generic, manufacturer):
+    line = match_catalogue(IntakeLine(source_row=1, medicine_name=brand))
+    assert line.medicine_name == brand
+    assert line.suggestion is not None
+    assert line.suggestion.suggested_value == generic
+    assert line.suggestion.brand_name == brand
+    assert line.suggestion.manufacturer == manufacturer
+    assert line.suggestion.source_name == "Ghana Food and Drugs Authority Product Register"
+    assert str(line.suggestion.source_url).startswith("https://verifypermit.fdaghana.gov.gh/")
+    assert line.suggestion.confirmation_required is True
+    assert line.suggestion.status == "pending"
+
+
+def test_brand_confirmation_preserves_original_and_records_buyer_action(client):
+    response = text_intake(
+        client,
+        "We need 600 packs of Locid 20 mg capsules, pack size 28, delivered to Accra within 18 days, priced in USD.",
+        "intake-brand-001",
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    line = body["lines"][0]
+    assert body["status"] == "suggestion_available"
+    assert line["medicine_name"] == "locid"
+    assert line["suggestion"]["suggested_value"] == "omeprazole"
+    assert line["suggestion"]["source_record_id"] == "6d9c3724-6bd8-4470-a43c-3a453ea92d16"
+    with SessionLocal() as db:
+        assert (db.scalar(select(func.count()).select_from(ReviewRow)) or 0) == 0
+
+    accepted = client.post(
+        f"/api/intakes/{body['id']}/lines/{line['id']}/suggestion",
+        json={"action": "accept", "version": body["version"], "idempotency_key": "accept-brand-001"},
+    )
+    accepted_line = accepted.json()["lines"][0]
+    assert accepted.status_code == 200, accepted.text
+    assert accepted_line["medicine_name"] == "omeprazole"
+    assert accepted_line["brand_name"] == "Locid"
+    assert accepted_line["original_values"]["request"].startswith("We need 600 packs of Locid")
+    assert accepted_line["suggestion"]["status"] == "accepted"
+    assert accepted_line["suggestion"]["actor_id"] is not None
+    assert accepted_line["suggestion"]["decided_at"] is not None
+
+
+def test_unverified_brand_is_not_presented_as_an_official_mapping():
+    assert len(load_ghana_brand_catalogue().records) == 10
+    line = match_catalogue(IntakeLine(source_row=1, medicine_name="Kinaprazole"))
+    assert line.medicine_name == "Kinaprazole"
+    assert line.suggestion is None or line.suggestion.source_name is None
+
+
+def test_spreadsheet_brand_column_uses_same_confirmation_flow(client):
+    login_buyer(client)
+    csv_data = (
+        b"brand,strength,dosage form,quantity,units,pack size,destination,lead time,currency\n"
+        b"Locid,20 mg,capsule,600,packs,28,Ghana,18,USD\n"
+    )
+    response = client.post(
+        "/api/intakes/files",
+        files={"file": ("brand-list.csv", csv_data, "text/csv")},
+        data={"idempotency_key": "brand-csv-001"},
+    )
+    assert response.status_code == 201, response.text
+    line = response.json()["lines"][0]
+    assert response.json()["status"] == "suggestion_available"
+    assert line["brand_name"] == "Locid"
+    assert line["medicine_name"] is None
+    assert line["suggestion"]["suggested_value"] == "omeprazole"
+    assert line["suggestion"]["source_name"] == "Ghana Food and Drugs Authority Product Register"
 
 
 def test_missing_fields_return_buyer_checklist_and_changed_row_revalidates(client):

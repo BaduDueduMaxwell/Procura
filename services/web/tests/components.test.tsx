@@ -69,6 +69,17 @@ describe("buyer intake correction workflow", () => {
     id:"intake-1",buyer_id:"buyer-1",organization:"Health Office",source_type:"text",status:"suggestion_available",version:1,trace_id:"trace-intake-1",policy_version:"procura-policy-v1",provider:"local",first_pass_complete:false,graph_path:["ingest_input","normalize_products","match_catalogue","validate_rows","classify_findings"],created_at:createdAt,updated_at:createdAt,
     lines:[{id:"line-1",source_row:1,medicine_name:"ameprazole",strength:"20 mg",dosage_form:"capsule",quantity:600,unit:"packs",pack_size:28,destination:"Ghana",max_lead_time_days:18,currency:"USD",cold_chain_required:false,original_values:{request:"ameprazole request"},status:"suggestion_available",findings:[{code:"catalogue_suggestion",severity:"warning",message:"Did you mean omeprazole?",field:"medicine_name",row_id:"line-1",evidence_source:"catalogue:omeprazole",correctable_by_buyer:true,suggested_action:"Accept the suggestion or edit the medicine"}],suggestion:{original_value:"ameprazole",suggested_value:"omeprazole",match_reason:"Closest spelling match in the repository catalogue",source_record_id:"catalogue:omeprazole",confirmation_required:true,status:"pending"}}],
   };
+  const brandSuggestion: ProcurementIntake = {
+    ...suggestion,
+    lines: [{...suggestion.lines[0], medicine_name:"locid", original_values:{request:"Locid 20 mg capsules"}, suggestion:{
+      ...suggestion.lines[0].suggestion!, original_value:"locid", suggested_value:"omeprazole",
+      match_reason:"Recognized Ghana FDA registered brand; confirm the generic medicine before continuing",
+      source_record_id:"6d9c3724-6bd8-4470-a43c-3a453ea92d16",
+      source_url:"https://verifypermit.fdaghana.gov.gh/get_info_pub/6d9c3724-6bd8-4470-a43c-3a453ea92d16",
+      source_name:"Ghana Food and Drugs Authority Product Register", brand_name:"Locid",
+      manufacturer:"Kinapharma Limited", registered_active_ingredient:"omeprazole", registered_strength:"20 mg", registered_dosage_form:"capsule",
+    }}],
+  };
 
   it("clears accepted text and requires confirmation before changing a medicine", async () => {
     vi.spyOn(api, "intakes").mockResolvedValue([]);
@@ -105,6 +116,18 @@ describe("buyer intake correction workflow", () => {
     expect(await screen.findByRole("heading", {name:"ameprazole"})).toBeVisible();
     expect(screen.getByText(/may be/i)).toHaveTextContent("omeprazole");
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it("shows sourced Ghana brand evidence before buyer confirmation", async () => {
+    window.history.replaceState({}, "", "/intake/intake-1");
+    vi.spyOn(api, "intakes").mockResolvedValue([brandSuggestion]);
+    render(<BuyerIntake/>);
+    expect(await screen.findByText("Confirm brand mapping")).toBeInTheDocument();
+    expect(screen.getByText("Kinapharma Limited")).toBeInTheDocument();
+    expect(screen.getByRole("link", {name:"View Ghana FDA source record"})).toHaveAttribute(
+      "href", "https://verifypermit.fdaghana.gov.gh/get_info_pub/6d9c3724-6bd8-4470-a43c-3a453ea92d16",
+    );
+    expect(screen.getByRole("button", {name:/accept mapping/i})).toBeInTheDocument();
   });
 });
 

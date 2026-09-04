@@ -1,12 +1,15 @@
 # Buyer intake evaluation
 
-Result: **22/22 (100%)**. Threshold: 90%.
+Result: **25/25 (100%)**. Threshold: 90%.
 
 | Scenario | Result |
 |---|---|
 | complete natural-language request | PASS |
 | misspelled medicine | PASS |
-| brand name requires confirmation | PASS |
+| Ghana brand name requires confirmation | PASS |
+| brand evidence identifies Kinapharma source | PASS |
+| brand evidence works across manufacturers | PASS |
+| unverified brand is not claimed as official | PASS |
 | ambiguous catalogue match | PASS |
 | missing required fields | PASS |
 | wrong dosage form | PASS |

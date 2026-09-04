@@ -159,11 +159,13 @@ class BuyerIntakeService:
                 "decided_at": datetime.now(UTC),
             })
             medicine_name = suggestion.suggested_value if action == "accept" else line.medicine_name
+            brand_name = suggestion.brand_name if action == "accept" and suggestion.brand_name else line.brand_name
             corrected_fields = line.buyer_corrected_fields
             if action == "accept":
                 corrected_fields = sorted({*corrected_fields, "medicine_name"})
             lines.append(line.model_copy(update={
                 "medicine_name": medicine_name,
+                "brand_name": brand_name,
                 "suggestion": suggestion,
                 "buyer_corrected_fields": corrected_fields,
             }))

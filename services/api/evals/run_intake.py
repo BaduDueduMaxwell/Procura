@@ -82,7 +82,10 @@ def critical_submission():
 scenarios = [
     ("complete natural-language request", lambda: text(complete).json()["status"] == "ready"),
     ("misspelled medicine", lambda: text(complete.replace("omeprazole", "ameprazole")).json()["status"] == "suggestion_available"),
-    ("brand name requires confirmation", lambda: text(complete.replace("omeprazole", "Panadol").replace("20 mg capsules", "500 mg tablets").replace("28", "20")).json()["status"] == "suggestion_available"),
+    ("Ghana brand name requires confirmation", lambda: text(complete.replace("omeprazole", "Locid")).json()["status"] == "suggestion_available"),
+    ("brand evidence identifies Kinapharma source", lambda: text(complete.replace("omeprazole", "Locid")).json()["lines"][0]["suggestion"]["manufacturer"] == "Kinapharma Limited"),
+    ("brand evidence works across manufacturers", lambda: text("We need 600 packs of Glucophage 500 mg tablets, pack size 30, delivered to Ghana within 18 days in USD.").json()["lines"][0]["suggestion"]["suggested_value"] == "metformin"),
+    ("unverified brand is not claimed as official", lambda: text(complete.replace("omeprazole", "Kinaprazole")).json()["lines"][0].get("suggestion") is None),
     ("ambiguous catalogue match", lambda: text("We need 600 packs of amoxicillin delivered to Ghana within 18 days in USD.").json()["status"] == "needs_correction"),
     ("missing required fields", lambda: text("We need omeprazole 20 mg capsules, pack size 28.").json()["status"] == "needs_correction"),
     ("wrong dosage form", lambda: text(complete.replace("capsules", "tablets")).json()["lines"][0]["findings"][0]["code"] == "catalogue_variant_mismatch"),

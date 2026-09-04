@@ -526,6 +526,16 @@ class CatalogueSuggestion(BaseModel):
     suggested_value: str
     match_reason: str
     source_record_id: str
+    source_url: str | None = None
+    source_name: str | None = None
+    catalogue_version: str | None = None
+    brand_name: str | None = None
+    manufacturer: str | None = None
+    representative_company: str | None = None
+    registered_active_ingredient: str | None = None
+    registered_strength: str | None = None
+    registered_dosage_form: str | None = None
+    registration_expiry: date | None = None
     confirmation_required: Literal[True] = True
     status: Literal["pending", "accepted", "rejected"] = "pending"
     actor_id: str | None = None

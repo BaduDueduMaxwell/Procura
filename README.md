@@ -16,9 +16,10 @@ The bundled local dataset uses fictional suppliers, quotes, authorizations, and 
 - A buyer can open one interpreted request to matching supplier portals. Invited suppliers respond against the buyer's locked medicine variant, staff revalidates current evidence before approval, and every role sees stored notifications and a request timeline.
 - Buyers search a database-backed medicine index before starting a request. The API filters server-side and returns at most six focused results to the workspace, with current supplier, quotation, and delivery evidence.
 - Shared trace IDs connect local metrics, optional Langfuse observations, and privacy-safe Sentry errors.
-- Twelve readable deterministic evaluations and separate backend/frontend gate tests.
+- Two readable deterministic evaluation lanes cover supplier decisions and buyer intake, with separate backend and frontend gate tests.
 - A LangGraph buyer-intake workflow persists row-level progress, pauses for buyer corrections, resumes after confirmation, and sends only unresolved critical conditions to review.
 - LangChain provides the typed Gemini integration and tool contracts. The no-key local interpreter runs the same deterministic graph in development and CI.
+- A versioned Ghana FDA reference catalogue recognizes active brands from multiple manufacturers, shows the official source record, and asks the buyer to confirm the generic medicine without silently changing the request.
 
 ## Architecture
 
@@ -42,6 +43,8 @@ The graph fixes the order: ingest, parse, normalize, catalogue match, row valida
 Use `/intake` to enter one natural-language requirement or upload a CSV/XLSX list. Files are limited to 5 MB and 2,000 rows, formulas are rejected rather than evaluated, and XLSX archives are bounded before extraction. Header aliases map familiar procurement headings without changing cell values. Every row keeps its original values and receives typed findings, a status, an evidence source, and a suggested action.
 
 Routine omissions, duplicate lines, brand mappings, and close spelling matches return to the buyer. A catalogue suggestion must be accepted or rejected by the signed-in buyer and records the actor and timestamp. The hosted Gemini interpreter classifies procurement intent semantically as part of its typed output rather than gating requests on a fixed phrase list. The no-key provider uses catalogue-independent clinical structure so unseen medicine names can still reach buyer correction. LangGraph stores its thread checkpoints in SQLite locally or PostgreSQL in production; the intake aggregate is also stored in the application database with optimistic version checks and idempotency keys. A Gemini timeout, outage, or 429 preserves a retryable draft and does not create a staff case.
+
+Brand normalization is deterministic. `knowledge/GHANA_MEDICINE_BRANDS.json` contains curated public reference records from the Ghana FDA Product Register, the retrieval date, registration expiry, manufacturer, active ingredient, and direct record URL. The application never queries the public register during a buyer request, so registry downtime cannot block intake. Expired records are ignored, unknown brands remain unresolved, and every recognized mapping requires buyer confirmation. Supplier, price, quotation, and inventory records remain fictional application data.
 
 ## Run locally on port 3001
 
@@ -122,7 +125,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev -- --port 3001
 make setup   # install backend and frontend dependencies
 make dev     # start the local development services
 make test    # backend and frontend gate tests
-make eval    # run all 12 deterministic scenarios
+make eval    # run supplier-decision and buyer-intake deterministic scenarios
 make lint    # Python lint and TypeScript/ESLint checks
 make build   # production web build and container builds
 make down    # stop Docker services

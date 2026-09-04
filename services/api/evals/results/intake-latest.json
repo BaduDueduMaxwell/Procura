@@ -1,8 +1,8 @@
 {
   "suite": "buyer-intake-v1",
   "provider": "local",
-  "passed": 22,
-  "total": 22,
+  "passed": 25,
+  "total": 25,
   "pass_rate": 1.0,
   "threshold": 0.9,
   "results": [
@@ -17,7 +17,22 @@
       "detail": "Observed expected buyer or critical-review route"
     },
     {
-      "scenario": "brand name requires confirmation",
+      "scenario": "Ghana brand name requires confirmation",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "brand evidence identifies Kinapharma source",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "brand evidence works across manufacturers",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "unverified brand is not claimed as official",
       "passed": true,
       "detail": "Observed expected buyer or critical-review route"
     },

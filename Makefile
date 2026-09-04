@@ -10,6 +10,7 @@ test:
 	cd services/web && npm test
 eval:
 	PYTHONPATH=services/api .venv/bin/python services/api/evals/run.py
+	PYTHONPATH=services/api .venv/bin/python services/api/evals/run_intake.py
 lint:
 	.venv/bin/ruff check services/api/app services/api/tests services/api/evals
 	cd services/web && npm run lint && npm run typecheck

@@ -4,13 +4,17 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def find_policy_path(start: Path | None = None) -> Path:
+def find_knowledge_path(filename: str, start: Path | None = None) -> Path:
     start = start or Path(__file__).resolve()
     for parent in start.parents:
-        candidate = parent / "knowledge" / "PROCUREMENT_POLICY.md"
+        candidate = parent / "knowledge" / filename
         if candidate.exists():
             return candidate
-    return Path("/knowledge/PROCUREMENT_POLICY.md")
+    return Path("/knowledge") / filename
+
+
+def find_policy_path(start: Path | None = None) -> Path:
+    return find_knowledge_path("PROCUREMENT_POLICY.md", start)
 
 
 class Settings(BaseSettings):

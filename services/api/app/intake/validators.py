@@ -4,10 +4,10 @@ from difflib import SequenceMatcher, get_close_matches
 from typing import Literal
 
 from app.domain.models import CatalogueSuggestion, IntakeFinding, IntakeLine
+from app.intake.brand_catalogue import find_ghana_brand
 from app.services.seed import synthetic_suppliers
 from app.services.tools import canonicalize_dosage_form, canonicalize_medicine_name, canonicalize_strength
 
-BRAND_TO_GENERIC = {"panadol": "paracetamol", "losec": "omeprazole", "norvasc": "amlodipine"}
 REQUIRED_FIELDS = {
     "medicine_name": "medicine name", "strength": "strength", "dosage_form": "dosage form",
     "quantity": "quantity", "unit": "quantity unit", "pack_size": "pack size",
@@ -58,8 +58,9 @@ def match_catalogue(line: IntakeLine) -> IntakeLine:
     if not name:
         return IntakeLine.model_validate(data)
     catalogue_names = sorted({item[0] for item in catalogue_variants()})
-    suggested = BRAND_TO_GENERIC.get(name)
-    reason = "Recognized brand-to-generic catalogue mapping"
+    brand_match = find_ghana_brand(name)
+    suggested = brand_match[1].generic_name if brand_match else None
+    reason = "Recognized Ghana FDA registered brand; confirm the generic medicine before continuing"
     if not suggested and name not in catalogue_names:
         matches = get_close_matches(name, catalogue_names, n=2, cutoff=0.72)
         if len(matches) == 1 or (matches and SequenceMatcher(None, name, matches[0]).ratio() >= 0.82):
@@ -67,14 +68,32 @@ def match_catalogue(line: IntakeLine) -> IntakeLine:
             reason = "Closest spelling match in the repository catalogue"
     if suggested and suggested != name and not (line.suggestion and line.suggestion.status == "rejected"):
         previous_status = line.suggestion.status if line.suggestion and line.suggestion.suggested_value == suggested else "pending"
+        source_fields = {}
+        if brand_match:
+            catalogue, record = brand_match
+            source_fields = {
+                "source_record_id": record.source_record_id,
+                "source_url": str(record.source_url),
+                "source_name": catalogue.source_name,
+                "catalogue_version": catalogue.catalogue_version,
+                "brand_name": record.brand_name,
+                "manufacturer": record.manufacturer,
+                "representative_company": record.representative_company,
+                "registered_active_ingredient": record.registered_active_ingredient,
+                "registered_strength": record.strength,
+                "registered_dosage_form": record.dosage_form,
+                "registration_expiry": record.registration_expiry,
+            }
+        else:
+            source_fields = {"source_record_id": f"catalogue:{suggested}"}
         data["suggestion"] = CatalogueSuggestion(
             original_value=name,
             suggested_value=suggested,
             match_reason=reason,
-            source_record_id=f"catalogue:{suggested}",
             status=previous_status,
             actor_id=line.suggestion.actor_id if line.suggestion else None,
             decided_at=line.suggestion.decided_at if line.suggestion else None,
+            **source_fields,
         ).model_dump()
     return IntakeLine.model_validate(data)
 
