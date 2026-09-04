@@ -68,33 +68,38 @@ def match_catalogue(line: IntakeLine) -> IntakeLine:
             reason = "Closest spelling match in the repository catalogue"
     if suggested and suggested != name and not (line.suggestion and line.suggestion.status == "rejected"):
         previous_status = line.suggestion.status if line.suggestion and line.suggestion.suggested_value == suggested else "pending"
-        source_fields = {}
         if brand_match:
             catalogue, record = brand_match
-            source_fields = {
-                "source_record_id": record.source_record_id,
-                "source_url": str(record.source_url),
-                "source_name": catalogue.source_name,
-                "catalogue_version": catalogue.catalogue_version,
-                "brand_name": record.brand_name,
-                "manufacturer": record.manufacturer,
-                "representative_company": record.representative_company,
-                "registered_active_ingredient": record.registered_active_ingredient,
-                "registered_strength": record.strength,
-                "registered_dosage_form": record.dosage_form,
-                "registration_expiry": record.registration_expiry,
-            }
+            suggestion = CatalogueSuggestion(
+                original_value=name,
+                suggested_value=suggested,
+                match_reason=reason,
+                source_record_id=record.source_record_id,
+                source_url=str(record.source_url),
+                source_name=catalogue.source_name,
+                catalogue_version=catalogue.catalogue_version,
+                brand_name=record.brand_name,
+                manufacturer=record.manufacturer,
+                representative_company=record.representative_company,
+                registered_active_ingredient=record.registered_active_ingredient,
+                registered_strength=record.strength,
+                registered_dosage_form=record.dosage_form,
+                registration_expiry=record.registration_expiry,
+                status=previous_status,
+                actor_id=line.suggestion.actor_id if line.suggestion else None,
+                decided_at=line.suggestion.decided_at if line.suggestion else None,
+            )
         else:
-            source_fields = {"source_record_id": f"catalogue:{suggested}"}
-        data["suggestion"] = CatalogueSuggestion(
-            original_value=name,
-            suggested_value=suggested,
-            match_reason=reason,
-            status=previous_status,
-            actor_id=line.suggestion.actor_id if line.suggestion else None,
-            decided_at=line.suggestion.decided_at if line.suggestion else None,
-            **source_fields,
-        ).model_dump()
+            suggestion = CatalogueSuggestion(
+                original_value=name,
+                suggested_value=suggested,
+                match_reason=reason,
+                source_record_id=f"catalogue:{suggested}",
+                status=previous_status,
+                actor_id=line.suggestion.actor_id if line.suggestion else None,
+                decided_at=line.suggestion.decided_at if line.suggestion else None,
+            )
+        data["suggestion"] = suggestion.model_dump()
     return IntakeLine.model_validate(data)
 
 
