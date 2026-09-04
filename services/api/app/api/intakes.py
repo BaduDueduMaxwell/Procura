@@ -96,7 +96,7 @@ def intake_dashboard(request: Request, user: AuthUser = Depends(buyer_or_admin))
 
 @router.get("/template.csv")
 def intake_template(_: AuthUser = Depends(buyer_or_admin)):
-    content = "medicine,strength,dosage form,quantity,pack size,destination,lead time,currency\n"
+    content = "medicine,strength,dosage form,quantity,units,pack size,destination,lead time,currency\n"
     return Response(
         content=content,
         media_type="text/csv",

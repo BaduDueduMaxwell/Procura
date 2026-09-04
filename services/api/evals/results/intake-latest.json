@@ -1,8 +1,8 @@
 {
   "suite": "buyer-intake-v1",
   "provider": "local",
-  "passed": 25,
-  "total": 25,
+  "passed": 26,
+  "total": 26,
   "pass_rate": 1.0,
   "threshold": 0.9,
   "results": [
@@ -63,6 +63,11 @@
     },
     {
       "scenario": "valid spreadsheet",
+      "passed": true,
+      "detail": "Observed expected buyer or critical-review route"
+    },
+    {
+      "scenario": "template includes required units and omits buyer notes",
       "passed": true,
       "detail": "Observed expected buyer or critical-review route"
     },

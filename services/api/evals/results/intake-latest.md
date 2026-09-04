@@ -1,6 +1,6 @@
 # Buyer intake evaluation
 
-Result: **25/25 (100%)**. Threshold: 90%.
+Result: **26/26 (100%)**. Threshold: 90%.
 
 | Scenario | Result |
 |---|---|
@@ -16,6 +16,7 @@ Result: **25/25 (100%)**. Threshold: 90%.
 | strength ambiguity | PASS |
 | pack versus unit ambiguity | PASS |
 | valid spreadsheet | PASS |
+| template includes required units and omits buyer notes | PASS |
 | mixed spreadsheet | PASS |
 | mappable headers | PASS |
 | duplicate products | PASS |

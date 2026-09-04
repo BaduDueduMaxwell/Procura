@@ -27,3 +27,8 @@ Feature: Ghana medicine brands return to the buyer for confirmation
     When Procura validates the medicine
     Then it does not claim Kinaprazole maps to omeprazole
     And it asks the buyer to correct or identify the medicine
+
+  Scenario: The intake template stays focused
+    When a buyer downloads the CSV template
+    Then it includes the required quantity units column
+    And it does not include a buyer notes column

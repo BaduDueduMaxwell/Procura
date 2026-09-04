@@ -156,6 +156,16 @@ def test_spreadsheet_brand_column_uses_same_confirmation_flow(client):
     assert line["suggestion"]["source_name"] == "Ghana Food and Drugs Authority Product Register"
 
 
+def test_downloadable_template_has_required_columns_without_buyer_notes(client):
+    login_buyer(client)
+    response = client.get("/api/intakes/template.csv")
+    assert response.status_code == 200
+    assert response.text == (
+        "medicine,strength,dosage form,quantity,units,pack size,destination,lead time,currency\n"
+    )
+    assert "buyer notes" not in response.text.casefold()
+
+
 def test_missing_fields_return_buyer_checklist_and_changed_row_revalidates(client):
     response = text_intake(client, "We need omeprazole 20 mg capsules, pack size 28.", "intake-missing-001")
     body = response.json()

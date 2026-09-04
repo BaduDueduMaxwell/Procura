@@ -92,6 +92,7 @@ scenarios = [
     ("strength ambiguity", lambda: text(complete.replace("20 mg", "40 mg")).json()["status"] == "needs_correction"),
     ("pack versus unit ambiguity", lambda: text(complete.replace("600 packs", "600 units")).json()["status"] == "needs_correction"),
     ("valid spreadsheet", lambda: csv_upload(header + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n").json()["status"] == "ready"),
+    ("template includes required units and omits buyer notes", lambda: client.get("/api/intakes/template.csv").text == header),
     ("mixed spreadsheet", lambda: len(csv_upload(header + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\nparacetamol,500 mg,tablet,,packs,20,Ghana,18,USD\n").json()["lines"]) == 2),
     ("mappable headers", lambda: csv_upload("drug;concentration;formulation;requested quantity;units;pack;market;lead time;currency\nomeprazole;20 mg;capsule;600;packs;28;Ghana;18;USD\n").json()["status"] == "ready"),
     ("duplicate products", lambda: any(item["code"] == "possible_duplicate" for item in csv_upload(header + "omeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\nomeprazole,20 mg,capsule,600,packs,28,Ghana,18,USD\n").json()["lines"][0]["findings"])),
