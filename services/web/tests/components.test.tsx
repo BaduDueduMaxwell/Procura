@@ -6,6 +6,8 @@ import { DecisionCards, formatReviewReason } from "@/components/DecisionCards";
 import type { AgentResponse } from "@/lib/types";
 import Home from "@/app/page";
 import { api, formatApiError } from "@/lib/api";
+import { BuyerIntake } from "@/components/BuyerIntake";
+import type { ProcurementIntake } from "@/lib/types";
 
 const stored = new Map<string, string>();
 Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), removeItem: (key: string) => stored.delete(key), clear: () => stored.clear() } });
@@ -58,6 +60,51 @@ describe("API validation messages", () => {
     const message = formatApiError({ detail: [{ loc: ["body", "organization"], msg: "String should have at least 2 characters" }] });
     expect(message).toContain("Organization");
     expect(message).not.toContain("[object Object]");
+  });
+});
+
+describe("buyer intake correction workflow", () => {
+  const createdAt = new Date().toISOString();
+  const suggestion: ProcurementIntake = {
+    id:"intake-1",buyer_id:"buyer-1",organization:"Health Office",source_type:"text",status:"suggestion_available",version:1,trace_id:"trace-intake-1",policy_version:"procura-policy-v1",provider:"local",first_pass_complete:false,graph_path:["ingest_input","normalize_products","match_catalogue","validate_rows","classify_findings"],created_at:createdAt,updated_at:createdAt,
+    lines:[{id:"line-1",source_row:1,medicine_name:"ameprazole",strength:"20 mg",dosage_form:"capsule",quantity:600,unit:"packs",pack_size:28,destination:"Ghana",max_lead_time_days:18,currency:"USD",cold_chain_required:false,original_values:{request:"ameprazole request"},status:"suggestion_available",findings:[{code:"catalogue_suggestion",severity:"warning",message:"Did you mean omeprazole?",field:"medicine_name",row_id:"line-1",evidence_source:"catalogue:omeprazole",correctable_by_buyer:true,suggested_action:"Accept the suggestion or edit the medicine"}],suggestion:{original_value:"ameprazole",suggested_value:"omeprazole",match_reason:"Closest spelling match in the repository catalogue",source_record_id:"catalogue:omeprazole",confirmation_required:true,status:"pending"}}],
+  };
+
+  it("clears accepted text and requires confirmation before changing a medicine", async () => {
+    vi.spyOn(api, "intakes").mockResolvedValue([]);
+    vi.spyOn(api, "createTextIntake").mockResolvedValue(suggestion);
+    vi.spyOn(api, "decideIntakeSuggestion").mockResolvedValue({ ...suggestion, status:"ready", version:2, lines:[{...suggestion.lines[0],medicine_name:"omeprazole",status:"ready",findings:[],suggestion:{...suggestion.lines[0].suggestion!,status:"accepted"}}] });
+    render(<BuyerIntake/>);
+    const input = screen.getByLabelText("Procurement requirement");
+    fireEvent.change(input, {target:{value:"We need 600 packs of ameprazole 20 mg capsules, pack size 28, delivered to Accra within 18 days in USD."}});
+    fireEvent.click(screen.getByRole("button", {name:/check requirement/i}));
+    expect(await screen.findByText(/may be/i)).toHaveTextContent("omeprazole");
+    expect(input).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name:/accept/i}));
+    await waitFor(() => expect(api.decideIntakeSuggestion).toHaveBeenCalledWith("intake-1", "line-1", 1, "accept"));
+    expect((await screen.findAllByText("Ready"))[0]).toBeVisible();
+  });
+
+  it("rejects an unsupported file before upload", async () => {
+    vi.spyOn(api, "intakes").mockResolvedValue([]);
+    const upload = vi.spyOn(api, "uploadIntake");
+    render(<BuyerIntake/>);
+    const picker = document.querySelector("#intake-file") as HTMLInputElement;
+    fireEvent.change(picker, {target:{files:[new File(["x"], "request.pdf", {type:"application/pdf"})]}});
+    expect(await screen.findByRole("alert")).toHaveTextContent("Upload an .xlsx or .csv procurement list");
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("resumes the same persisted intake after a page refresh", async () => {
+    window.history.replaceState({}, "", "/intake/intake-1");
+    vi.spyOn(api, "intakes").mockResolvedValue([suggestion]);
+    const load = vi.spyOn(api, "intake");
+
+    render(<BuyerIntake/>);
+
+    expect(await screen.findByRole("heading", {name:"ameprazole"})).toBeVisible();
+    expect(screen.getByText(/may be/i)).toHaveTextContent("omeprazole");
+    expect(load).not.toHaveBeenCalled();
   });
 });
 

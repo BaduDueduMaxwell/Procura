@@ -1,4 +1,4 @@
-import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, Conversation, CustomerDashboard, MedicineCatalogItem, Notification, Operations, ProcurementLifecycle, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierRequestAssignment, SupplierRequestResponse, SupplierSubmission, Trace } from "./types";
+import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, Conversation, CustomerDashboard, IntakeDashboardSummary, MedicineCatalogItem, Notification, Operations, ProcurementIntake, ProcurementLifecycle, ReviewBrief, ReviewCase, SupplierDashboard, SupplierQuoteDraft, SupplierRequestAssignment, SupplierRequestResponse, SupplierSubmission, Trace } from "./types";
 import * as Sentry from "@sentry/nextjs";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
@@ -31,7 +31,8 @@ export function formatApiError(payload: unknown): string {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response;
-  try { response = await fetch(`${API}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...options?.headers } }); }
+  const headers = options?.body instanceof FormData ? options.headers : { "Content-Type": "application/json", ...options?.headers };
+  try { response = await fetch(`${API}${path}`, { ...options, credentials: "include", headers }); }
   catch (error) { Sentry.captureException(error, { tags: { error_category: "frontend_network", workflow_stage: "api_request" } }); throw error; }
   if (!response.ok) {
     const error = new ApiError(response.status, formatApiError(await response.json().catch(() => ({}))));
@@ -46,6 +47,19 @@ export const api = {
   login: (email: string, password: string) => request<AuthUser>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   customerDashboard: () => request<CustomerDashboard>("/api/dashboard/summary"),
+  intakeSummary: () => request<IntakeDashboardSummary>("/api/intakes/summary"),
+  intakes: () => request<ProcurementIntake[]>("/api/intakes"),
+  intake: (id: string) => request<ProcurementIntake>(`/api/intakes/${id}`),
+  createTextIntake: (content: string) => request<ProcurementIntake>("/api/intakes/text", { method: "POST", body: JSON.stringify({ content, idempotency_key: crypto.randomUUID() }) }),
+  uploadIntake: (file: File) => {
+    const form = new FormData(); form.set("file", file); form.set("idempotency_key", crypto.randomUUID());
+    return request<ProcurementIntake>("/api/intakes/files", { method: "POST", body: form });
+  },
+  patchIntakeLine: (intakeId: string, lineId: string, version: number, values: Record<string, unknown>) => request<ProcurementIntake>(`/api/intakes/${intakeId}/lines/${lineId}`, { method: "PATCH", body: JSON.stringify({ ...values, version, idempotency_key: crypto.randomUUID() }) }),
+  decideIntakeSuggestion: (intakeId: string, lineId: string, version: number, action: "accept" | "reject") => request<ProcurementIntake>(`/api/intakes/${intakeId}/lines/${lineId}/suggestion`, { method: "POST", body: JSON.stringify({ action, version, idempotency_key: crypto.randomUUID() }) }),
+  revalidateIntake: (id: string, version: number) => request<ProcurementIntake>(`/api/intakes/${id}/revalidate`, { method: "POST", body: JSON.stringify({ version, idempotency_key: crypto.randomUUID() }) }),
+  submitIntake: (id: string, version: number) => request<ProcurementIntake>(`/api/intakes/${id}/submit`, { method: "POST", body: JSON.stringify({ version, idempotency_key: crypto.randomUUID() }) }),
+  intakeTemplateUrl: () => `${API}/api/intakes/template.csv`,
   medicineCatalog: (query = "", limit = 6) => request<MedicineCatalogItem[]>(`/api/catalog/medicines?q=${encodeURIComponent(query)}&limit=${limit}`),
   supplierDashboard: () => request<SupplierDashboard>("/api/supplier/dashboard"),
   submitSupplierProfile: (body: { display_name: string; destinations: string[]; cold_chain: boolean; authorization_expiry: string }) => request<SupplierSubmission>("/api/supplier/submissions/profile", { method: "POST", body: JSON.stringify({ ...body, idempotency_key: crypto.randomUUID() }) }),

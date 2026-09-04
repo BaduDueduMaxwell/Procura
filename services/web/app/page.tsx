@@ -7,8 +7,9 @@ import type { AdminOverview, AdminUserPage, AgentResponse, AuthUser, CustomerDas
 import { DecisionCards, formatReviewReason } from "@/components/DecisionCards";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { StatusBadge } from "@/components/StatusBadge";
+import { BuyerIntake } from "@/components/BuyerIntake";
 
-type Screen = "dashboard" | "chat" | "supplier" | "reviews" | "supplierReviews" | "operations" | "admin";
+type Screen = "dashboard" | "intake" | "chat" | "supplier" | "reviews" | "supplierReviews" | "operations" | "admin";
 type TourStep = { title: string; description: string; screen: Screen; target?: string };
 type Notice = { id: number; title: string; detail: string; tone: "progress" | "success" | "attention" | "error" };
 const examples = [
@@ -16,7 +17,7 @@ const examples = [
   "300 packs of insulin 100 units/ml vials, pack size 10, cold chain, delivered to Ghana within 21 days in USD.",
   "We need ceftriaxone delivered to Nairobi."
 ];
-const screenRoutes: Record<Screen, string> = { dashboard: "/dashboard", chat: "/workspace", reviews: "/reviews", supplierReviews: "/reviews/suppliers", operations: "/operations", admin: "/admin", supplier: "/supplier" };
+const screenRoutes: Record<Screen, string> = { dashboard: "/dashboard", intake: "/intake", chat: "/workspace", reviews: "/reviews", supplierReviews: "/reviews/suppliers", operations: "/operations", admin: "/admin", supplier: "/supplier" };
 
 function medicineLabel(name?: string, strength?: string, fallback = "Incomplete request") {
   if (!name) return fallback;
@@ -33,6 +34,7 @@ function submissionLabel(item: SupplierSubmission) {
 
 function screenForPath(path: string): Screen | undefined {
   if (path === "/dashboard") return "dashboard";
+  if (path === "/intake" || path.startsWith("/intake/")) return "intake";
   if (path === "/workspace" || path.startsWith("/workspace/decisions/")) return "chat";
   if (path === "/reviews/suppliers" || path.startsWith("/reviews/suppliers/")) return "supplierReviews";
   if (path === "/reviews" || path.startsWith("/reviews/")) return "reviews";
@@ -169,8 +171,9 @@ export default function Home() {
   if (!authReady) return <main className="auth-loading" role="status"><span className="pulse-dot" />Loading Procura…</main>;
   if (!user) return <Landing onAuthenticated={account => { setUser(account); navigate(allowedScreen(account), true); }} />;
   return <div className="app-shell">
-    <Nav screen={screen} setScreen={navigate} onNew={() => { navigate("chat"); startNew(); }} onGuide={() => setTourStep(0)} user={user} onLogout={() => api.logout().finally(() => { setUser(undefined); setConversationId(undefined); window.history.replaceState({}, "", "/"); })} />
-    {screen === "dashboard" && ["buyer", "admin"].includes(user.role) && <CustomerDashboard onStart={() => { navigate("chat"); startNew(); }} onOpenDecision={traceId => openDecision(traceId)} />}
+    <Nav screen={screen} setScreen={navigate} onNew={() => { navigate("intake"); notify("New request ready", "Enter one requirement or upload a procurement list."); }} onGuide={() => setTourStep(0)} user={user} onLogout={() => api.logout().finally(() => { setUser(undefined); setConversationId(undefined); window.history.replaceState({}, "", "/"); })} />
+    {screen === "dashboard" && ["buyer", "admin"].includes(user.role) && <CustomerDashboard onStart={() => { navigate("intake"); notify("New request ready", "Enter one requirement or upload a procurement list."); }} onOpenDecision={traceId => openDecision(traceId)} />}
+    {screen === "intake" && ["buyer", "admin"].includes(user.role) && <BuyerIntake onNotice={notify} />}
     {screen === "supplier" && user.role === "supplier" && <SupplierDashboard />}
     {screen === "chat" && ["buyer", "admin"].includes(user.role) && <main className="workspace">
       <header className="mobile-header"><Brand /><button className="icon-button" onClick={() => setDrawer(true)} aria-label="Open decision evidence"><PanelRight size={20} /></button></header>
@@ -207,8 +210,8 @@ export default function Home() {
 
 function Brand() { return <div className="brand"><div className="brand-mark">P</div><div><strong>Procura</strong><span>Procurement operations</span></div></div>; }
 function Nav({ screen, setScreen, onNew, onGuide, user, onLogout }: { screen: Screen; setScreen: (s: Screen) => void; onNew: () => void; onGuide: () => void; user: AuthUser; onLogout: () => void }) {
-  const items: [Screen, string, typeof MessageSquareText][] = [["dashboard", "Dashboard", LayoutDashboard], ["chat", "Workspace", MessageSquareText], ["reviews", "Request reviews", ClipboardCheck], ["supplierReviews", "Supplier approvals", Building2], ["operations", "Operations", Activity], ["admin", "Administration", UsersRound]];
-  const visible = user.role === "supplier" ? [["supplier", "Supplier portal", Building2]] as [Screen, string, typeof MessageSquareText][] : user.role === "buyer" ? items.slice(0, 2) : user.role === "reviewer" ? items.slice(2, 4) : items;
+  const items: [Screen, string, typeof MessageSquareText][] = [["dashboard", "Dashboard", LayoutDashboard], ["intake", "Buyer intake", FileSearch], ["chat", "Workspace", MessageSquareText], ["reviews", "Request reviews", ClipboardCheck], ["supplierReviews", "Supplier approvals", Building2], ["operations", "Operations", Activity], ["admin", "Administration", UsersRound]];
+  const visible = user.role === "supplier" ? [["supplier", "Supplier portal", Building2]] as [Screen, string, typeof MessageSquareText][] : user.role === "buyer" ? items.slice(0, 3) : user.role === "reviewer" ? items.slice(3, 5) : items;
   const canCreateRequest = user.role === "buyer" || user.role === "admin";
   return <nav className={`side-nav nav-${user.role}`} aria-label="Primary navigation"><Brand />{canCreateRequest && <button className="new-button" data-tour="new-request" onClick={onNew}><Plus size={17} />New request</button>}<NotificationCenter/><div className="nav-items">{visible.map(([id, label, Icon]) => <button key={id} aria-label={label} data-tour={`nav-${id}`} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><Icon size={18} /><span>{label}</span></button>)}</div><button className="guide-button" onClick={onGuide} aria-label="Product guide"><CircleHelp size={17} /><span>Product guide</span></button><div className="account-card"><span>{user.display_name}</span><small>{user.role === "admin" ? "operations admin" : user.role}</small><button onClick={onLogout} aria-label="Sign out"><LogOut size={15} /></button></div><div className="nav-footer"><Shield size={16} /><span>Policy<br/><strong>procura-policy-v1</strong></span></div></nav>;
 }
@@ -358,7 +361,7 @@ function OperationsScreen() {
   useEffect(() => { api.operations().then(result => { setData(result); const routeId = window.location.pathname.match(/^\/operations\/traces\/([^/]+)$/)?.[1]; setSelectedTrace(result.recent_traces.find(trace => trace.trace_id === routeId)); }).catch(() => setError(true)); }, []);
   if (error) return <main className="page-shell"><div className="error-state">Operations data is unavailable.</div></main>;
   if (!data) return <main className="page-shell"><div className="progress-line"><span className="pulse-dot" />Loading measured operations…</div></main>;
-  const metrics = [["Requests", data.request_count], ["Autonomous", data.autonomous_recommendation_count], ["Human review", data.human_review_count], ["Errors", data.error_count], ["p50 latency", data.p50_latency_ms ? `${data.p50_latency_ms} ms` : "Not enough data"], ["p95 latency", data.p95_latency_ms ? `${data.p95_latency_ms} ms` : "Not enough data"], ["Token usage", data.token_usage ?? "Not available"], ["Eval pass rate", data.evaluation_pass_rate != null ? `${Math.round(data.evaluation_pass_rate * 100)}%` : "Not run"]];
+  const metrics = [["Intakes", data.intake_count ?? 0], ["Ready", data.intake_ready_count ?? 0], ["Submitted", data.intake_submitted_count ?? 0], ["Time to valid", data.median_time_to_valid_submission_ms ? `${Math.round(data.median_time_to_valid_submission_ms / 1000)} s median` : "Not enough data"], ["Requests", data.request_count], ["Human review", data.human_review_count], ["p95 latency", data.p95_latency_ms ? `${data.p95_latency_ms} ms` : "Not enough data"], ["Eval pass rate", data.evaluation_pass_rate != null ? `${Math.round(data.evaluation_pass_rate * 100)}%` : "Not run"]];
   return <main className="page-shell" data-tour="operations"><header className="page-head"><div><p className="eyebrow">System performance</p><h1>Operations</h1><p>Monitor procurement activity, decision outcomes, review volume, and workflow performance.</p></div></header><div className="metric-grid">{metrics.map(([label, value]) => <div className="metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="ops-grid"><section className="data-card"><div className="card-title"><h2>Recent workflow activity</h2><span>{data.recent_traces.length} records</span></div>{data.recent_traces.length ? <div className="trace-list">{data.recent_traces.map(t => <button type="button" className={selectedTrace?.trace_id === t.trace_id ? "selected" : ""} key={t.trace_id} onClick={() => { setSelectedTrace(t); window.history.pushState({}, "", `/operations/traces/${t.trace_id}`); }} aria-label={`Open ${medicineLabel(t.medicine_name, t.strength)} trace`}><span><strong>{medicineLabel(t.medicine_name, t.strength)}</strong><small>{t.decision.replaceAll("_", " ")} · {t.trace_id.slice(0, 8)}</small></span><strong>{t.latency_ms} ms</strong><ArrowRight size={14}/></button>)}</div> : <p className="muted-block">No workflow activity yet. Complete a request to create the first record.</p>}{selectedTrace && <div className="trace-detail" aria-live="polite"><div className="card-title"><h3>{medicineLabel(selectedTrace.medicine_name, selectedTrace.strength, "Trace evidence")}</h3><button type="button" onClick={() => { setSelectedTrace(undefined); window.history.pushState({}, "", "/operations"); }} aria-label="Close trace evidence"><X size={14}/></button></div><dl><div><dt>Trace ID</dt><dd><code>{selectedTrace.trace_id}</code></dd></div><div><dt>Provider</dt><dd>{selectedTrace.provider} · {selectedTrace.model}</dd></div><div><dt>Decision</dt><dd>{selectedTrace.decision.replaceAll("_", " ")}</dd></div><div><dt>Policy</dt><dd>{selectedTrace.policy_version}</dd></div><div><dt>Tokens</dt><dd>{selectedTrace.token_input ?? "Not available"} in · {selectedTrace.token_output ?? "Not available"} out</dd></div><div><dt>Tool calls</dt><dd>{selectedTrace.tool_sequence.length}</dd></div></dl></div>}</section><section className="data-card"><div className="card-title"><h2>System status</h2></div><div className="integration"><span className={data.langfuse_status === "Configured" ? "good-dot" : "neutral-dot"} /><div><strong>Trace export</strong><p>{data.langfuse_status === "Configured" ? "Connected" : "Using local records"}</p></div></div><div className="integration"><span className={data.sentry_status === "Configured" ? "good-dot" : "neutral-dot"} /><div><strong>Error monitoring</strong><p>{data.sentry_status === "Configured" ? "Connected" : "Using local logs"}</p></div></div><p className="fine-print">Procura preserves local workflow records when external monitoring is not connected.</p></section></div></main>;
 }
 
